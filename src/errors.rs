@@ -3,6 +3,8 @@ use std::fmt;
 
 use rlp::DecoderError;
 
+use crate::nibbles::Nibbles;
+
 #[derive(Debug)]
 pub enum TrieError {
     DB(String),
@@ -10,6 +12,12 @@ pub enum TrieError {
     InvalidData,
     InvalidStateRoot,
     InvalidProof,
+    MissingTrieNode {
+        node_hash: Vec<u8>,
+        traversed: Nibbles,
+        root_hash: Option<Vec<u8>>,
+        err_key: Option<Vec<u8>>,
+    },
 }
 
 impl Error for TrieError {}
@@ -22,6 +30,7 @@ impl fmt::Display for TrieError {
             TrieError::InvalidData => "trie error: invalid data".to_owned(),
             TrieError::InvalidStateRoot => "trie error: invalid state root".to_owned(),
             TrieError::InvalidProof => "trie error: invalid proof".to_owned(),
+            TrieError::MissingTrieNode { .. } => "trie error: missing node".to_owned(),
         };
         write!(f, "{}", printable)
     }

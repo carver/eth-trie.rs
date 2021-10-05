@@ -256,7 +256,23 @@ where
     /// Returns the value for key stored in the trie.
     fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>> {
         let path = &Nibbles::from_raw(key.to_vec(), true);
-        self.get_at(self.root.clone(), path, 0)
+        let result = self.get_at(self.root.clone(), path, 0);
+        if let Err(TrieError::MissingTrieNode {
+            node_hash,
+            traversed,
+            root_hash,
+            err_key: _,
+        }) = result
+        {
+            Err(TrieError::MissingTrieNode {
+                node_hash,
+                traversed,
+                root_hash,
+                err_key: Some(key.to_vec()),
+            })
+        } else {
+            result
+        }
     }
 
     /// Checks that the key is present in the trie
@@ -370,9 +386,16 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let borrow_hash_node = hash_node.borrow();
-                let n = self.recover_from_db(&borrow_hash_node.hash)?;
-                self.get_at(n, path, path_index)
+                let node_hash = hash_node.borrow().hash.clone();
+                let node = self.recover_from_db(&node_hash)?.ok_or_else(|| {
+                    TrieError::MissingTrieNode {
+                        node_hash,
+                        traversed: Some(path.slice(0, path_index)),
+                        root_hash: Some(self.root_hash.clone()),
+                        err_key: None,
+                    }
+                })?;
+                self.get_at(node, path, path_index)
             }
         }
     }
@@ -799,11 +822,12 @@ where
         }
     }
 
-    fn recover_from_db(&self, key: &[u8]) -> TrieResult<Node> {
-        match self.db.get(key).map_err(|e| TrieError::DB(e.to_string()))? {
-            Some(value) => Ok(self.decode_node(&value)?),
-            None => Ok(Node::Empty),
-        }
+    fn recover_from_db(&self, key: &[u8]) -> TrieResult<Option<Node>> {
+        let node = match self.db.get(key).map_err(|e| TrieError::DB(e.to_string()))? {
+            Some(value) => Some(self.decode_node(&value)?),
+            None => None,
+        };
+        Ok(node)
     }
 }
 
@@ -820,6 +844,8 @@ mod tests {
 
     use super::{PatriciaTrie, Trie};
     use crate::db::{MemoryDB, DB};
+    use crate::errors::TrieError;
+    use crate::nibbles::Nibbles;
 
     #[test]
     fn test_trie_insert() {
@@ -836,6 +862,58 @@ mod tests {
         let v = trie.get(b"test").unwrap();
 
         assert_eq!(Some(b"test".to_vec()), v)
+    }
+
+    #[test]
+    fn test_trie_get_missing() {
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, Arc::new(HasherKeccak::new()));
+        trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
+        let v = trie.get(b"no-val").unwrap();
+
+        assert_eq!(None, v)
+    }
+
+    #[test]
+    /// When a database entry is missing, get returns a MissingTrieNode error
+    fn test_trie_get_corrupt() {
+        let memdb = Arc::new(MemoryDB::new(true));
+        let corruptor_db = memdb.clone();
+        let mut trie = PatriciaTrie::new(memdb, Arc::new(HasherKeccak::new()));
+        trie.insert(b"test1".to_vec(), b"test1".to_vec()).unwrap();
+        trie.insert(b"test2".to_vec(), b"test2".to_vec()).unwrap();
+        let actual_root_hash = &trie.commit().unwrap();
+
+        // Manually corrupt the database by removing a trie node
+        let node_hash_to_delete = b"jq\x92\x84\xde\x0c\xaf\x90\xcd&\xa93@/$\x14\xddr\xb2j3k\x89U\x95I\xed\x12\x061\x9a\x1c";
+        assert!(corruptor_db.contains(node_hash_to_delete).unwrap());
+        corruptor_db.remove(node_hash_to_delete).unwrap();
+        assert!(!corruptor_db.contains(node_hash_to_delete).unwrap());
+
+        let result = trie.get(b"test2");
+        if let Err(TrieError::MissingTrieNode {
+            node_hash,
+            traversed,
+            root_hash,
+            err_key,
+        }) = result
+        {
+            assert_eq!(node_hash, node_hash_to_delete);
+            // Traversed through b"test" and the first nibble shared by b"1" and b"2"
+            assert_eq!(
+                traversed,
+                Nibbles::from_hex(vec![7, 4, 6, 5, 7, 3, 7, 4, 3])
+            );
+            assert_eq!(&root_hash.unwrap(), actual_root_hash);
+            // Looked up the key b"test2"
+            assert_eq!(err_key.unwrap(), b"test2".to_vec());
+        } else {
+            // The only acceptable result here was a MissingTrieNode
+            panic!(
+                "Must get a MissingTrieNode when database entry is missing, but got {:?}",
+                result
+            );
+        }
     }
 
     #[test]
