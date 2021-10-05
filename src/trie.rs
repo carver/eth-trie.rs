@@ -168,7 +168,7 @@ where
                     (TraceStatus::Doing, Node::Hash(ref hash_node)) => {
                         if let Ok(n) = self.trie.recover_from_db(&hash_node.borrow().hash.clone()) {
                             self.nodes.pop();
-                            self.nodes.push(n.into());
+                            self.nodes.push(n.unwrap().into());
                         } else {
                             //error!();
                             return None;
@@ -493,7 +493,7 @@ where
                 self.passing_keys
                     .borrow_mut()
                     .insert(borrow_hash_node.hash.to_vec());
-                let n = self.recover_from_db(&borrow_hash_node.hash)?;
+                let n = self.recover_from_db(&borrow_hash_node.hash)?.unwrap();
                 self.insert_at(n, partial, value)
             }
         }
@@ -551,7 +551,7 @@ where
                 let hash = hash_node.borrow().hash.clone();
                 self.passing_keys.borrow_mut().insert(hash.clone());
 
-                let n = self.recover_from_db(&hash)?;
+                let n = self.recover_from_db(&hash)?.unwrap();
                 self.delete_at(n, partial)
             }
         }?;
@@ -616,7 +616,7 @@ where
                         let hash = hash_node.borrow().hash.clone();
                         self.passing_keys.borrow_mut().insert(hash.clone());
 
-                        let new_node = self.recover_from_db(&hash)?;
+                        let new_node = self.recover_from_db(&hash)?.unwrap();
 
                         let n = Node::from_extension(borrow_ext.prefix.clone(), new_node);
                         self.degenerate(n)
@@ -660,7 +660,9 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let n = self.recover_from_db(&hash_node.borrow().hash.clone())?;
+                let n = self
+                    .recover_from_db(&hash_node.borrow().hash.clone())?
+                    .unwrap();
                 let mut rest = self.get_path_at(n.clone(), partial)?;
                 rest.push(n);
                 Ok(rest)
@@ -704,7 +706,7 @@ where
         self.root_hash = root_hash.to_vec();
         self.gen_keys.borrow_mut().clear();
         self.passing_keys.borrow_mut().clear();
-        self.root = self.recover_from_db(&root_hash)?;
+        self.root = self.recover_from_db(&root_hash)?.unwrap();
         Ok(root_hash)
     }
 
