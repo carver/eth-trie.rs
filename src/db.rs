@@ -19,7 +19,7 @@ pub trait DB: Send + Sync {
     /// Insert data into the cache.
     fn insert(&self, key: Vec<u8>, value: Vec<u8>) -> Result<(), Self::Error>;
 
-    /// Insert data into the cache.
+    /// Remove data with given key.
     fn remove(&self, key: &[u8]) -> Result<(), Self::Error>;
 
     /// Insert a batch of data into the cache.

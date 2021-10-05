@@ -160,8 +160,7 @@ where
                         let value_option = branch.borrow().value.clone();
                         if let Some(value) = value_option {
                             return Some((self.nibble.encode_raw().0, value));
-                        }
-                        else {
+                        } else {
                             continue;
                         }
                     }
