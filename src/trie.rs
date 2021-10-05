@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use hashbrown::{HashMap, HashSet};
 use hasher::Hasher;
+use log::warn;
 use rlp::{Prototype, Rlp, RlpStream};
 
 use crate::db::{MemoryDB, DB};
@@ -166,9 +167,16 @@ where
                     }
 
                     (TraceStatus::Doing, Node::Hash(ref hash_node)) => {
-                        if let Ok(n) = self.trie.recover_from_db(&hash_node.borrow().hash.clone()) {
+                        let node_hash = hash_node.borrow().hash.clone();
+                        if let Ok(n) = self.trie.recover_from_db(&node_hash) {
                             self.nodes.pop();
-                            self.nodes.push(n.unwrap().into());
+                            match n {
+                                Some(node) => self.nodes.push(node.into()),
+                                None => {
+                                    warn!("Trie node with hash {:?} is missing from the database. Skipping...", &node_hash);
+                                    continue;
+                                }
+                            }
                         } else {
                             //error!();
                             return None;
