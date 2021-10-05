@@ -255,13 +255,15 @@ where
 {
     /// Returns the value for key stored in the trie.
     fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>> {
-        self.get_at(self.root.clone(), &Nibbles::from_raw(key.to_vec(), true))
+        let path = &Nibbles::from_raw(key.to_vec(), true);
+        self.get_at(self.root.clone(), path, 0)
     }
 
     /// Checks that the key is present in the trie
     fn contains(&self, key: &[u8]) -> TrieResult<bool> {
+        let path = &Nibbles::from_raw(key.to_vec(), true);
         Ok(self
-            .get_at(self.root.clone(), &Nibbles::from_raw(key.to_vec(), true))?
+            .get_at(self.root.clone(), path, 0)?
             .map_or(false, |_| true))
     }
 
@@ -333,7 +335,8 @@ where
     D: DB,
     H: Hasher,
 {
-    fn get_at(&self, n: Node, partial: &Nibbles) -> TrieResult<Option<Vec<u8>>> {
+    fn get_at(&self, n: Node, path: &Nibbles, path_index: usize) -> TrieResult<Option<Vec<u8>>> {
+        let partial = &path.offset(path_index);
         match n {
             Node::Empty => Ok(None),
             Node::Leaf(leaf) => {
@@ -352,7 +355,7 @@ where
                     Ok(borrow_branch.value.clone())
                 } else {
                     let index = partial.at(0);
-                    self.get_at(borrow_branch.children[index].clone(), &partial.offset(1))
+                    self.get_at(borrow_branch.children[index].clone(), path, path_index + 1)
                 }
             }
             Node::Extension(extension) => {
@@ -361,7 +364,7 @@ where
                 let prefix = &extension.prefix;
                 let match_len = partial.common_prefix(prefix);
                 if match_len == prefix.len() {
-                    self.get_at(extension.node.clone(), &partial.offset(match_len))
+                    self.get_at(extension.node.clone(), path, path_index + match_len)
                 } else {
                     Ok(None)
                 }
@@ -369,7 +372,7 @@ where
             Node::Hash(hash_node) => {
                 let borrow_hash_node = hash_node.borrow();
                 let n = self.recover_from_db(&borrow_hash_node.hash)?;
-                self.get_at(n, partial)
+                self.get_at(n, path, path_index)
             }
         }
     }
