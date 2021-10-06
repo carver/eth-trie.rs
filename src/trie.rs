@@ -596,6 +596,9 @@ where
         }
     }
 
+    // This refactors the trie after a node deletion, as necessary.
+    // For example, if a deletion removes a child of a branch node, leaving only one child left, it
+    // needs to be modified into an extension and maybe combined with its parent and/or child node.
     fn degenerate(&self, n: Node) -> TrieResult<Node> {
         match n {
             Node::Branch(branch) => {
@@ -646,10 +649,17 @@ where
                     }
                     // try again after recovering node from the db.
                     Node::Hash(hash_node) => {
-                        let hash = hash_node.borrow().hash.clone();
-                        self.passing_keys.borrow_mut().insert(hash.clone());
+                        let node_hash = hash_node.borrow().hash.clone();
+                        self.passing_keys.borrow_mut().insert(node_hash.clone());
 
-                        let new_node = self.recover_from_db(&hash)?.unwrap();
+                        let new_node = self.recover_from_db(&node_hash)?.ok_or_else(|| {
+                            TrieError::MissingTrieNode {
+                                node_hash,
+                                traversed: None,
+                                root_hash: Some(self.root_hash.clone()),
+                                err_key: None,
+                            }
+                        })?;
 
                         let n = Node::from_extension(borrow_ext.prefix.clone(), new_node);
                         self.degenerate(n)
@@ -962,7 +972,7 @@ mod tests {
             assert_eq!(node_hash, node_hash_to_delete);
             // Traversed through b"test" and the first nibble shared by b"1" and b"2"
             assert_eq!(
-                traversed,
+                traversed.unwrap(),
                 Nibbles::from_hex(vec![7, 4, 6, 5, 7, 3, 7, 4, 3])
             );
             assert_eq!(&root_hash.unwrap(), actual_root_hash);
@@ -990,6 +1000,30 @@ mod tests {
                 traversed: Some(Nibbles::from_hex(vec![7, 4, 6, 5, 7, 3, 7, 4, 3, 2])),
                 root_hash: Some(actual_root_hash),
                 err_key: Some(b"test2-key".to_vec()),
+            };
+            assert_eq!(missing_trie_node, expected_error);
+        } else {
+            // The only acceptable result here was a MissingTrieNode
+            panic!(
+                "Must get a MissingTrieNode when database entry is missing, but got {:?}",
+                result
+            );
+        }
+    }
+
+    #[test]
+    /// When a database entry is missing, delete returns a MissingTrieNode error
+    fn test_trie_delete_refactor_corrupt() {
+        let (mut trie, actual_root_hash, deleted_node_hash) = corrupt_trie();
+
+        let result = trie.remove(b"test1-key");
+
+        if let Err(missing_trie_node) = result {
+            let expected_error = TrieError::MissingTrieNode {
+                node_hash: deleted_node_hash,
+                traversed: None,
+                root_hash: Some(actual_root_hash),
+                err_key: Some(b"test1-key".to_vec()),
             };
             assert_eq!(missing_trie_node, expected_error);
         } else {

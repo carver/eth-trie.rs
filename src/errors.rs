@@ -14,7 +14,7 @@ pub enum TrieError {
     InvalidProof,
     MissingTrieNode {
         node_hash: Vec<u8>,
-        traversed: Nibbles,
+        traversed: Option<Nibbles>,
         root_hash: Option<Vec<u8>>,
         err_key: Option<Vec<u8>>,
     },
