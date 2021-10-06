@@ -304,10 +304,27 @@ where
 
     /// Removes any existing value for key from the trie.
     fn remove(&mut self, key: &[u8]) -> TrieResult<bool> {
-        let (n, removed) =
-            self.delete_at(self.root.clone(), &Nibbles::from_raw(key.to_vec(), true))?;
-        self.root = n;
-        Ok(removed)
+        let path = &Nibbles::from_raw(key.to_vec(), true);
+        let result = self.delete_at(self.root.clone(), path, 0);
+
+        if let Err(TrieError::MissingTrieNode {
+            node_hash,
+            traversed,
+            root_hash,
+            err_key: _,
+        }) = result
+        {
+            Err(TrieError::MissingTrieNode {
+                node_hash,
+                traversed,
+                root_hash,
+                err_key: Some(key.to_vec()),
+            })
+        } else {
+            let (n, removed) = result?;
+            self.root = n;
+            Ok(removed)
+        }
     }
 
     /// Saves all the nodes in the db, clears the cache data, recalculates the root.
@@ -507,7 +524,8 @@ where
         }
     }
 
-    fn delete_at(&self, n: Node, partial: &Nibbles) -> TrieResult<(Node, bool)> {
+    fn delete_at(&self, n: Node, path: &Nibbles, path_index: usize) -> TrieResult<(Node, bool)> {
+        let partial = &path.offset(path_index);
         let (new_n, deleted) = match n {
             Node::Empty => Ok((Node::Empty, false)),
             Node::Leaf(leaf) => {
@@ -529,7 +547,7 @@ where
                 let index = partial.at(0);
                 let node = borrow_branch.children[index].clone();
 
-                let (new_n, deleted) = self.delete_at(node, &partial.offset(1))?;
+                let (new_n, deleted) = self.delete_at(node, path, path_index + 1)?;
                 if deleted {
                     borrow_branch.children[index] = new_n;
                 }
@@ -544,7 +562,7 @@ where
 
                 if match_len == prefix.len() {
                     let (new_n, deleted) =
-                        self.delete_at(borrow_ext.node.clone(), &partial.offset(match_len))?;
+                        self.delete_at(borrow_ext.node.clone(), path, path_index + match_len)?;
 
                     if deleted {
                         borrow_ext.node = new_n;
@@ -559,8 +577,15 @@ where
                 let hash = hash_node.borrow().hash.clone();
                 self.passing_keys.borrow_mut().insert(hash.clone());
 
-                let n = self.recover_from_db(&hash)?.unwrap();
-                self.delete_at(n, partial)
+                let node =
+                    self.recover_from_db(&hash)?
+                        .ok_or_else(|| TrieError::MissingTrieNode {
+                            node_hash: hash,
+                            traversed: Some(path.slice(0, path_index)),
+                            root_hash: Some(self.root_hash.clone()),
+                            err_key: None,
+                        })?;
+                self.delete_at(node, path, path_index)
             }
         }?;
 
@@ -943,6 +968,30 @@ mod tests {
             assert_eq!(&root_hash.unwrap(), actual_root_hash);
             // Looked up the key b"test2"
             assert_eq!(err_key.unwrap(), b"test2".to_vec());
+        } else {
+            // The only acceptable result here was a MissingTrieNode
+            panic!(
+                "Must get a MissingTrieNode when database entry is missing, but got {:?}",
+                result
+            );
+        }
+    }
+
+    #[test]
+    /// When a database entry is missing, delete returns a MissingTrieNode error
+    fn test_trie_delete_corrupt() {
+        let (mut trie, actual_root_hash, deleted_node_hash) = corrupt_trie();
+
+        let result = trie.remove(b"test2-key");
+
+        if let Err(missing_trie_node) = result {
+            let expected_error = TrieError::MissingTrieNode {
+                node_hash: deleted_node_hash,
+                traversed: Some(Nibbles::from_hex(vec![7, 4, 6, 5, 7, 3, 7, 4, 3, 2])),
+                root_hash: Some(actual_root_hash),
+                err_key: Some(b"test2-key".to_vec()),
+            };
+            assert_eq!(missing_trie_node, expected_error);
         } else {
             // The only acceptable result here was a MissingTrieNode
             panic!(
