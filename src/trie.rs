@@ -298,8 +298,26 @@ where
             return Ok(());
         }
         let root = self.root.clone();
-        self.root = self.insert_at(root, Nibbles::from_raw(key, true), value.to_vec())?;
-        Ok(())
+        let path = &Nibbles::from_raw(key.clone(), true);
+        let result = self.insert_at(root, path, 0, value.to_vec());
+
+        if let Err(TrieError::MissingTrieNode {
+            node_hash,
+            traversed,
+            root_hash,
+            err_key: _,
+        }) = result
+        {
+            Err(TrieError::MissingTrieNode {
+                node_hash,
+                traversed,
+                root_hash,
+                err_key: Some(key),
+            })
+        } else {
+            self.root = result?;
+            Ok(())
+        }
     }
 
     /// Removes any existing value for key from the trie.
@@ -442,7 +460,14 @@ where
         }
     }
 
-    fn insert_at(&self, n: Node, partial: Nibbles, value: Vec<u8>) -> TrieResult<Node> {
+    fn insert_at(
+        &self,
+        n: Node,
+        path: &Nibbles,
+        path_index: usize,
+        value: Vec<u8>,
+    ) -> TrieResult<Node> {
+        let partial = path.offset(path_index);
         match n {
             Node::Empty => Ok(Node::from_leaf(partial, value)),
             Node::Leaf(leaf) => {
@@ -489,7 +514,7 @@ where
                 }
 
                 let child = borrow_branch.children[partial.at(0)].clone();
-                let new_child = self.insert_at(child, partial.offset(1), value)?;
+                let new_child = self.insert_at(child, path, path_index + 1, value)?;
                 borrow_branch.children[partial.at(0)] = new_child;
                 Ok(Node::Branch(branch.clone()))
             }
@@ -515,28 +540,33 @@ where
                     );
                     let node = Node::Branch(Rc::new(RefCell::new(branch)));
 
-                    return self.insert_at(node, partial, value);
+                    return self.insert_at(node, path, path_index, value);
                 }
 
                 if match_index == prefix.len() {
-                    let new_node = self.insert_at(sub_node, partial.offset(match_index), value)?;
+                    let new_node =
+                        self.insert_at(sub_node, path, path_index + match_index, value)?;
                     return Ok(Node::from_extension(prefix.clone(), new_node));
                 }
 
                 let new_ext = Node::from_extension(prefix.offset(match_index), sub_node);
-                let new_node = self.insert_at(new_ext, partial.offset(match_index), value)?;
+                let new_node = self.insert_at(new_ext, path, path_index + match_index, value)?;
                 borrow_ext.prefix = prefix.slice(0, match_index);
                 borrow_ext.node = new_node;
                 Ok(Node::Extension(ext.clone()))
             }
             Node::Hash(hash_node) => {
-                let borrow_hash_node = hash_node.borrow();
-
-                self.passing_keys
-                    .borrow_mut()
-                    .insert(borrow_hash_node.hash.to_vec());
-                let n = self.recover_from_db(&borrow_hash_node.hash)?.unwrap();
-                self.insert_at(n, partial, value)
+                let node_hash = hash_node.borrow().hash.clone();
+                self.passing_keys.borrow_mut().insert(node_hash.to_vec());
+                let node = self.recover_from_db(&node_hash)?.ok_or_else(|| {
+                    TrieError::MissingTrieNode {
+                        node_hash,
+                        traversed: Some(path.slice(0, path_index)),
+                        root_hash: Some(self.root_hash.clone()),
+                        err_key: None,
+                    }
+                })?;
+                self.insert_at(node, path, path_index, value)
             }
         }
     }
@@ -1072,6 +1102,30 @@ mod tests {
                 traversed: None,
                 root_hash: Some(actual_root_hash),
                 err_key: Some(b"test2-key".to_vec()),
+            };
+            assert_eq!(missing_trie_node, expected_error);
+        } else {
+            // The only acceptable result here was a MissingTrieNode
+            panic!(
+                "Must get a MissingTrieNode when database entry is missing, but got {:?}",
+                result
+            );
+        }
+    }
+
+    #[test]
+    /// When a database entry is missing, insert returns a MissingTrieNode error
+    fn test_trie_insert_corrupt() {
+        let (mut trie, actual_root_hash, deleted_node_hash) = corrupt_trie();
+
+        let result = trie.insert(b"test2-neighbor".to_vec(), b"any".to_vec());
+
+        if let Err(missing_trie_node) = result {
+            let expected_error = TrieError::MissingTrieNode {
+                node_hash: deleted_node_hash,
+                traversed: Some(Nibbles::from_hex(vec![7, 4, 6, 5, 7, 3, 7, 4, 3, 2])),
+                root_hash: Some(actual_root_hash),
+                err_key: Some(b"test2-neighbor".to_vec()),
             };
             assert_eq!(missing_trie_node, expected_error);
         } else {
