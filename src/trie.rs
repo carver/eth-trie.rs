@@ -803,7 +803,9 @@ where
         self.root_hash = root_hash.to_vec();
         self.gen_keys.borrow_mut().clear();
         self.passing_keys.borrow_mut().clear();
-        self.root = self.recover_from_db(&root_hash)?.unwrap();
+        self.root = self
+            .recover_from_db(&root_hash)?
+            .expect("The root that was just created is missing");
         Ok(root_hash)
     }
 
