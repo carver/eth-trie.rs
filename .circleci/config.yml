@@ -27,7 +27,7 @@ jobs:
                 command: cargo build --workspace --jobs 2
             - run:
                 name: Test workspace
-                command: cargo test --workspace
+                command: RUSTFLAGS='-D warnings' cargo test --workspace
 workflows:
   merge-test:
     jobs:
