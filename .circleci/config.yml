@@ -10,9 +10,6 @@ jobs:
             tag: 1.55.0
         steps:
             - checkout
-            - restore_cache:
-                keys:
-                    - cargo-{{ checksum "Cargo.lock" }}-v1
             - run:
                 name: Install rustfmt
                 command: rustup component add rustfmt
@@ -31,11 +28,6 @@ jobs:
             - run:
                 name: Test workspace
                 command: cargo test --workspace
-            - save_cache:
-                key: cargo-{{ checksum "Cargo.lock" }}-v1
-                paths:
-                    - ~/.cargo
-                    - target
 workflows:
   merge-test:
     jobs:
