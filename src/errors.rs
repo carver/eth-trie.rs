@@ -5,7 +5,7 @@ use rlp::DecoderError;
 
 use crate::nibbles::Nibbles;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TrieError {
     DB(String),
     Decoder(DecoderError),

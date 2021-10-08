@@ -876,6 +876,32 @@ mod tests {
         assert_eq!(None, v)
     }
 
+    fn corrupt_trie() -> (PatriciaTrie<MemoryDB, HasherKeccak>, Vec<u8>, Vec<u8>) {
+        let memdb = Arc::new(MemoryDB::new(true));
+        let corruptor_db = memdb.clone();
+        let mut trie = PatriciaTrie::new(memdb, Arc::new(HasherKeccak::new()));
+        trie.insert(
+            b"test1-key".to_vec(),
+            b"really-long-value1-to-prevent-inlining".to_vec(),
+        )
+        .unwrap();
+        trie.insert(
+            b"test2-key".to_vec(),
+            b"really-long-value2-to-prevent-inlining".to_vec(),
+        )
+        .unwrap();
+        let actual_root_hash = &trie.commit().unwrap();
+
+        // Manually corrupt the database by removing a trie node
+        // This is the hash for the leaf node for test2-key
+        let node_hash_to_delete = b"\xcb\x15v%j\r\x1e\te_TvQ\x8d\x93\x80\xd1\xa2\xd1\xde\xfb\xa5\xc3hJ\x8c\x9d\xb93I-\xbd";
+        assert!(corruptor_db.contains(node_hash_to_delete).unwrap());
+        corruptor_db.remove(node_hash_to_delete).unwrap();
+        assert!(!corruptor_db.contains(node_hash_to_delete).unwrap());
+
+        return (trie, actual_root_hash.clone(), node_hash_to_delete.to_vec());
+    }
+
     #[test]
     /// When a database entry is missing, get returns a MissingTrieNode error
     fn test_trie_get_corrupt() {
