@@ -23,32 +23,38 @@ use std::sync::Arc;
 use hasher::{Hasher, HasherKeccak}; // https://crates.io/crates/hasher
 
 use eth_trie::MemoryDB;
-use eth_trie::{PatriciaTrie, Trie};
+use eth_trie::{PatriciaTrie, Trie, TrieError};
 
-fn main() {
+fn main() -> Result<(), TrieError> {
     let memdb = Arc::new(MemoryDB::new(true));
-    let hahser = Arc::new(HasherKeccak::new());
+    let hasher = Arc::new(HasherKeccak::new());
 
-    let key = "test-key".as_bytes();
-    let value = "test-value".as_bytes();
+    let key = b"test-key";
+    let value = b"test-value";
 
     let root = {
         let mut trie = PatriciaTrie::new(Arc::clone(&memdb), Arc::clone(&hasher));
-        trie.insert(key, value).unwrap();
+        trie.insert(key.to_vec(), value.to_vec())?;
 
-        let v = trie.get(key).unwrap();
+        let v = trie.get(key)?;
         assert_eq!(Some(value.to_vec()), v);
-        trie.root().unwrap()
+        trie.root()?
     };
+    assert_eq!(root, b"\x0ee/\xd2Y,\x8aS}\xcf|0\x85L\xb2\x87\xea\xabt\x0c\x16\xd9G\x0c\xa3\xe0S\xf4\x9b}\xe3g");
 
-    let mut trie = PatriciaTrie::from(Arc::clone(&memdb), Arc::clone(&hasher), &root);
-    let exists = trie.contains(key).unwrap();
+    let mut trie = PatriciaTrie::from(Arc::clone(&memdb), Arc::clone(&hasher), &root)?;
+
+    let exists = trie.contains(key)?;
     assert_eq!(exists, true);
-    let removed = trie.remove(key).unwrap();
-    assert_eq!(removed, true);
-    let new_root = trie.root().unwrap();
-    println!("new root = {:?}", new_root);
 
+    let removed = trie.remove(key)?;
+    assert_eq!(removed, true);
+
+    // Back to the empty key after removing the only key
+    let new_root = trie.root()?;
+    assert_eq!(new_root, b"V\xe8\x1f\x17\x1b\xccU\xa6\xff\x83E\xe6\x92\xc0\xf8n[H\xe0\x1b\x99l\xad\xc0\x01b/\xb5\xe3c\xb4!");
+
+    Ok(())
 }
 
 ```
