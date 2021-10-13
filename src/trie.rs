@@ -165,8 +165,8 @@ where
                     }
 
                     (TraceStatus::Doing, Node::Hash(ref hash_node)) => {
-                        let node_hash = hash_node.borrow().hash.clone();
-                        if let Ok(n) = self.trie.recover_from_db(&node_hash) {
+                        let node_hash = hash_node.borrow().hash;
+                        if let Ok(n) = self.trie.recover_from_db(node_hash) {
                             self.nodes.pop();
                             match n {
                                 Some(node) => self.nodes.push(node.into()),
@@ -441,15 +441,15 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let node_hash = hash_node.borrow().hash.clone();
-                let node = self.recover_from_db(&node_hash)?.ok_or_else(|| {
-                    TrieError::MissingTrieNode {
-                        node_hash,
-                        traversed: Some(path.slice(0, path_index)),
-                        root_hash: Some(self.root_hash),
-                        err_key: None,
-                    }
-                })?;
+                let node_hash = hash_node.borrow().hash;
+                let node =
+                    self.recover_from_db(node_hash)?
+                        .ok_or_else(|| TrieError::MissingTrieNode {
+                            node_hash,
+                            traversed: Some(path.slice(0, path_index)),
+                            root_hash: Some(self.root_hash),
+                            err_key: None,
+                        })?;
                 self.get_at(node, path, path_index)
             }
         }
@@ -551,16 +551,18 @@ where
                 Ok(Node::Extension(ext.clone()))
             }
             Node::Hash(hash_node) => {
-                let node_hash = hash_node.borrow().hash.clone();
-                self.passing_keys.borrow_mut().insert(node_hash.to_vec());
-                let node = self.recover_from_db(&node_hash)?.ok_or_else(|| {
-                    TrieError::MissingTrieNode {
-                        node_hash,
-                        traversed: Some(path.slice(0, path_index)),
-                        root_hash: Some(self.root_hash),
-                        err_key: None,
-                    }
-                })?;
+                let node_hash = hash_node.borrow().hash;
+                self.passing_keys
+                    .borrow_mut()
+                    .insert(node_hash.as_bytes().to_vec());
+                let node =
+                    self.recover_from_db(node_hash)?
+                        .ok_or_else(|| TrieError::MissingTrieNode {
+                            node_hash,
+                            traversed: Some(path.slice(0, path_index)),
+                            root_hash: Some(self.root_hash),
+                            err_key: None,
+                        })?;
                 self.insert_at(node, path, path_index, value)
             }
         }
@@ -616,11 +618,13 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let hash = hash_node.borrow().hash.clone();
-                self.passing_keys.borrow_mut().insert(hash.clone());
+                let hash = hash_node.borrow().hash;
+                self.passing_keys
+                    .borrow_mut()
+                    .insert(hash.as_bytes().to_vec());
 
                 let node =
-                    self.recover_from_db(&hash)?
+                    self.recover_from_db(hash)?
                         .ok_or_else(|| TrieError::MissingTrieNode {
                             node_hash: hash,
                             traversed: Some(path.slice(0, path_index)),
@@ -691,17 +695,19 @@ where
                     }
                     // try again after recovering node from the db.
                     Node::Hash(hash_node) => {
-                        let node_hash = hash_node.borrow().hash.clone();
-                        self.passing_keys.borrow_mut().insert(node_hash.clone());
+                        let node_hash = hash_node.borrow().hash;
+                        self.passing_keys
+                            .borrow_mut()
+                            .insert(node_hash.as_bytes().to_vec());
 
-                        let new_node = self.recover_from_db(&node_hash)?.ok_or(
-                            TrieError::MissingTrieNode {
-                                node_hash,
-                                traversed: None,
-                                root_hash: Some(self.root_hash),
-                                err_key: None,
-                            },
-                        )?;
+                        let new_node =
+                            self.recover_from_db(node_hash)?
+                                .ok_or(TrieError::MissingTrieNode {
+                                    node_hash,
+                                    traversed: None,
+                                    root_hash: Some(self.root_hash),
+                                    err_key: None,
+                                })?;
 
                         let n = Node::from_extension(borrow_ext.prefix.clone(), new_node);
                         self.degenerate(n)
@@ -746,9 +752,9 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let node_hash = hash_node.borrow().hash.clone();
+                let node_hash = hash_node.borrow().hash;
                 let n = self
-                    .recover_from_db(&node_hash)?
+                    .recover_from_db(node_hash)?
                     .ok_or(TrieError::MissingTrieNode {
                         node_hash,
                         traversed: None,
@@ -806,7 +812,7 @@ where
         self.gen_keys.borrow_mut().clear();
         self.passing_keys.borrow_mut().clear();
         self.root = self
-            .recover_from_db(root_hash.as_bytes())?
+            .recover_from_db(root_hash)?
             .expect("The root that was just created is missing");
         Ok(root_hash)
     }
@@ -814,7 +820,7 @@ where
     fn encode_node(&self, n: Node) -> Vec<u8> {
         // Returns the hash value directly to avoid double counting.
         if let Node::Hash(hash_node) = n {
-            return hash_node.borrow().hash.clone();
+            return hash_node.borrow().hash.as_bytes().to_vec();
         }
 
         let data = self.encode_raw(n.clone());
@@ -919,7 +925,8 @@ where
             }
             _ => {
                 if r.is_data() && r.size() == HASHED_LENGTH {
-                    Ok(Node::from_hash(r.data()?.to_vec()))
+                    let hash = H256::from_slice(r.data()?);
+                    Ok(Node::from_hash(hash))
                 } else {
                     Err(TrieError::InvalidData)
                 }
@@ -927,8 +934,12 @@ where
         }
     }
 
-    fn recover_from_db(&self, key: &[u8]) -> TrieResult<Option<Node>> {
-        let node = match self.db.get(key).map_err(|e| TrieError::DB(e.to_string()))? {
+    fn recover_from_db(&self, key: H256) -> TrieResult<Option<Node>> {
+        let node = match self
+            .db
+            .get(key.as_bytes())
+            .map_err(|e| TrieError::DB(e.to_string()))?
+        {
             Some(value) => Some(self.decode_node(&value)?),
             None => None,
         };
@@ -979,7 +990,7 @@ mod tests {
         assert_eq!(None, v)
     }
 
-    fn corrupt_trie() -> (EthTrie<MemoryDB>, H256, Vec<u8>) {
+    fn corrupt_trie() -> (EthTrie<MemoryDB>, H256, H256) {
         let memdb = Arc::new(MemoryDB::new(true));
         let corruptor_db = memdb.clone();
         let mut trie = EthTrie::new(memdb);
@@ -1002,42 +1013,28 @@ mod tests {
         corruptor_db.remove(node_hash_to_delete).unwrap();
         assert!(!corruptor_db.contains(node_hash_to_delete).unwrap());
 
-        return (trie, actual_root_hash, node_hash_to_delete.to_vec());
+        return (
+            trie,
+            actual_root_hash,
+            H256::from_slice(node_hash_to_delete),
+        );
     }
 
     #[test]
     /// When a database entry is missing, get returns a MissingTrieNode error
     fn test_trie_get_corrupt() {
-        let memdb = Arc::new(MemoryDB::new(true));
-        let corruptor_db = memdb.clone();
-        let mut trie = EthTrie::new(memdb);
-        trie.insert(b"test1".to_vec(), b"test1".to_vec()).unwrap();
-        trie.insert(b"test2".to_vec(), b"test2".to_vec()).unwrap();
-        let actual_root_hash = trie.root_hash().unwrap();
+        let (trie, actual_root_hash, deleted_node_hash) = corrupt_trie();
 
-        // Manually corrupt the database by removing a trie node
-        let node_hash_to_delete = b"jq\x92\x84\xde\x0c\xaf\x90\xcd&\xa93@/$\x14\xddr\xb2j3k\x89U\x95I\xed\x12\x061\x9a\x1c";
-        assert!(corruptor_db.contains(node_hash_to_delete).unwrap());
-        corruptor_db.remove(node_hash_to_delete).unwrap();
-        assert!(!corruptor_db.contains(node_hash_to_delete).unwrap());
+        let result = trie.get(b"test2-key");
 
-        let result = trie.get(b"test2");
-        if let Err(TrieError::MissingTrieNode {
-            node_hash,
-            traversed,
-            root_hash,
-            err_key,
-        }) = result
-        {
-            assert_eq!(node_hash, node_hash_to_delete);
-            // Traversed through b"test" and the first nibble shared by b"1" and b"2"
-            assert_eq!(
-                traversed.unwrap(),
-                Nibbles::from_hex(vec![7, 4, 6, 5, 7, 3, 7, 4, 3])
-            );
-            assert_eq!(root_hash.unwrap(), actual_root_hash);
-            // Looked up the key b"test2"
-            assert_eq!(err_key.unwrap(), b"test2".to_vec());
+        if let Err(missing_trie_node) = result {
+            let expected_error = TrieError::MissingTrieNode {
+                node_hash: deleted_node_hash,
+                traversed: Some(Nibbles::from_hex(vec![7, 4, 6, 5, 7, 3, 7, 4, 3, 2])),
+                root_hash: Some(actual_root_hash),
+                err_key: Some(b"test2-key".to_vec()),
+            };
+            assert_eq!(missing_trie_node, expected_error);
         } else {
             // The only acceptable result here was a MissingTrieNode
             panic!(
