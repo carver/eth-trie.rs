@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
+use keccak_hash::H256;
 use rlp::DecoderError;
 
 use crate::nibbles::Nibbles;
@@ -15,7 +16,7 @@ pub enum TrieError {
     MissingTrieNode {
         node_hash: Vec<u8>,
         traversed: Option<Nibbles>,
-        root_hash: Option<Vec<u8>>,
+        root_hash: Option<H256>,
         err_key: Option<Vec<u8>>,
     },
 }
