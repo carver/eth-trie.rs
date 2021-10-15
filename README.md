@@ -30,7 +30,7 @@ fn main() -> Result<(), TrieError> {
 
     let root = {
         let mut trie = EthTrie::new(Arc::clone(&memdb));
-        trie.insert(key.to_vec(), value.to_vec())?;
+        trie.insert(key, value.to_vec())?;
 
         let v = trie.get(key)?;
         assert_eq!(Some(value.to_vec()), v);
