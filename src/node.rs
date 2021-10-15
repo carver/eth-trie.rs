@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use keccak_hash::H256;
+
 use crate::nibbles::Nibbles;
 
 #[derive(Debug, Clone)]
@@ -28,7 +30,7 @@ impl Node {
         Node::Extension(ext)
     }
 
-    pub fn from_hash(hash: Vec<u8>) -> Self {
+    pub fn from_hash(hash: H256) -> Self {
         let hash_node = Rc::new(RefCell::new(HashNode { hash }));
         Node::Hash(hash_node)
     }
@@ -69,7 +71,7 @@ pub struct ExtensionNode {
 
 #[derive(Debug)]
 pub struct HashNode {
-    pub hash: Vec<u8>,
+    pub hash: H256,
 }
 
 pub fn empty_children() -> [Node; 16] {
