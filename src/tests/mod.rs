@@ -11,7 +11,7 @@ mod trie_tests {
         let memdb = Arc::new(MemoryDB::new(true));
         let mut trie = EthTrie::new(Arc::clone(&memdb));
         for (k, v) in data.into_iter() {
-            trie.insert(k, v.to_vec()).unwrap();
+            trie.insert(k, v).unwrap();
         }
         let root_hash = trie.root_hash().unwrap();
         let rs = format!("0x{}", hex::encode(root_hash.clone()));
@@ -550,9 +550,9 @@ mod trie_tests {
     fn test_proof_basic() {
         let memdb = Arc::new(MemoryDB::new(true));
         let mut trie = EthTrie::new(Arc::clone(&memdb));
-        trie.insert(b"doe", b"reindeer".to_vec()).unwrap();
-        trie.insert(b"dog", b"puppy".to_vec()).unwrap();
-        trie.insert(b"dogglesworth", b"cat".to_vec()).unwrap();
+        trie.insert(b"doe", b"reindeer").unwrap();
+        trie.insert(b"dog", b"puppy").unwrap();
+        trie.insert(b"dogglesworth", b"cat").unwrap();
         let root = trie.root_hash().unwrap();
         let r = format!("0x{}", hex::encode(trie.root_hash().unwrap()));
         assert_eq!(
@@ -616,11 +616,11 @@ mod trie_tests {
             let random_bytes: Vec<u8> = (0..rng.gen_range(2, 30))
                 .map(|_| rand::random::<u8>())
                 .collect();
-            trie.insert(&random_bytes, random_bytes.clone()).unwrap();
+            trie.insert(&random_bytes, &random_bytes).unwrap();
             keys.push(random_bytes.clone());
         }
         for k in keys.clone().into_iter() {
-            trie.insert(&k, k.clone()).unwrap();
+            trie.insert(&k, &k).unwrap();
         }
         let root = trie.root_hash().unwrap();
         for k in keys.into_iter() {
@@ -643,7 +643,7 @@ mod trie_tests {
     fn test_proof_one_element() {
         let memdb = Arc::new(MemoryDB::new(true));
         let mut trie = EthTrie::new(Arc::clone(&memdb));
-        trie.insert(b"k", b"v".to_vec()).unwrap();
+        trie.insert(b"k", b"v").unwrap();
         let root = trie.root_hash().unwrap();
         let proof = trie.get_proof(b"k").unwrap();
         assert_eq!(proof.len(), 1);
