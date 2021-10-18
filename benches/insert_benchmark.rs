@@ -14,7 +14,7 @@ fn insert_worse_case_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let key = Uuid::new_v4().as_bytes().to_vec();
             let value = Uuid::new_v4().as_bytes().to_vec();
-            trie.insert(key, value).unwrap()
+            trie.insert(&key, &value).unwrap()
         })
     });
 
@@ -24,7 +24,7 @@ fn insert_worse_case_benchmark(c: &mut Criterion) {
         let (keys, values) = random_data(1000);
         b.iter(|| {
             for i in 0..keys.len() {
-                trie.insert(keys[i].clone(), values[i].clone()).unwrap()
+                trie.insert(&keys[i], &values[i]).unwrap()
             }
         });
     });
@@ -35,7 +35,7 @@ fn insert_worse_case_benchmark(c: &mut Criterion) {
         let (keys, values) = random_data(10000);
         b.iter(|| {
             for i in 0..keys.len() {
-                trie.insert(keys[i].clone(), values[i].clone()).unwrap()
+                trie.insert(&keys[i], &values[i]).unwrap()
             }
         });
     });
