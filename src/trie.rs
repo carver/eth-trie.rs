@@ -324,7 +324,7 @@ where
     /// Removes any existing value for key from the trie.
     fn remove(&mut self, key: &[u8]) -> TrieResult<bool> {
         let path = &Nibbles::from_raw(key, true);
-        let result = self.delete_at(self.root.clone(), path, 0);
+        let result = self.delete_at(&self.root, path, 0);
 
         if let Err(TrieError::MissingTrieNode {
             node_hash,
@@ -572,9 +572,14 @@ where
         }
     }
 
-    fn delete_at(&self, n: Node, path: &Nibbles, path_index: usize) -> TrieResult<(Node, bool)> {
+    fn delete_at(
+        &self,
+        old_node: &Node,
+        path: &Nibbles,
+        path_index: usize,
+    ) -> TrieResult<(Node, bool)> {
         let partial = &path.offset(path_index);
-        let (new_n, deleted) = match n {
+        let (new_node, deleted) = match old_node {
             Node::Empty => Ok((Node::Empty, false)),
             Node::Leaf(leaf) => {
                 let borrow_leaf = leaf.borrow();
@@ -593,11 +598,11 @@ where
                 }
 
                 let index = partial.at(0);
-                let node = borrow_branch.children[index].clone();
+                let child = &borrow_branch.children[index];
 
-                let (new_n, deleted) = self.delete_at(node, path, path_index + 1)?;
+                let (new_child, deleted) = self.delete_at(child, path, path_index + 1)?;
                 if deleted {
-                    borrow_branch.children[index] = new_n;
+                    borrow_branch.children[index] = new_child;
                 }
 
                 Ok((Node::Branch(branch.clone()), deleted))
@@ -609,11 +614,11 @@ where
                 let match_len = partial.common_prefix(prefix);
 
                 if match_len == prefix.len() {
-                    let (new_n, deleted) =
-                        self.delete_at(borrow_ext.node.clone(), path, path_index + match_len)?;
+                    let (new_node, deleted) =
+                        self.delete_at(&borrow_ext.node, path, path_index + match_len)?;
 
                     if deleted {
-                        borrow_ext.node = new_n;
+                        borrow_ext.node = new_node;
                     }
 
                     Ok((Node::Extension(ext.clone()), deleted))
@@ -635,14 +640,14 @@ where
                             root_hash: Some(self.root_hash),
                             err_key: None,
                         })?;
-                self.delete_at(node, path, path_index)
+                self.delete_at(&node, path, path_index)
             }
         }?;
 
         if deleted {
-            Ok((self.degenerate(new_n)?, deleted))
+            Ok((self.degenerate(new_node)?, deleted))
         } else {
-            Ok((new_n, deleted))
+            Ok((new_node, deleted))
         }
     }
 
