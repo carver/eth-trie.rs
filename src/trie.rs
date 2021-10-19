@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -64,6 +63,11 @@ where
     cache: RefCell<HashMap<Vec<u8>, Vec<u8>>>,
     passing_keys: RefCell<HashSet<Vec<u8>>>,
     gen_keys: RefCell<HashSet<Vec<u8>>>,
+}
+
+enum EncodedNode {
+    Hash(H256),
+    Inline(Vec<u8>),
 }
 
 #[derive(Clone, Debug)]
@@ -768,19 +772,14 @@ where
     }
 
     fn commit(&mut self) -> TrieResult<H256> {
-        let encoded = self.encode_node(self.root.clone());
-
-        let root_hash = match encoded.len().cmp(&HASHED_LENGTH) {
-            Ordering::Less => {
+        let root_hash = match self.encode_node(self.root.clone()) {
+            EncodedNode::Hash(hash) => hash,
+            EncodedNode::Inline(encoded) => {
                 let hash = keccak(&encoded);
                 self.cache
                     .borrow_mut()
                     .insert(hash.as_bytes().to_vec(), encoded);
                 hash
-            }
-            Ordering::Equal => H256::from_slice(&encoded),
-            Ordering::Greater => {
-                return Err(TrieError::InvalidData);
             }
         };
 
@@ -816,17 +815,17 @@ where
         Ok(root_hash)
     }
 
-    fn encode_node(&self, n: Node) -> Vec<u8> {
+    fn encode_node(&self, n: Node) -> EncodedNode {
         // Returns the hash value directly to avoid double counting.
         if let Node::Hash(hash_node) = n {
-            return hash_node.borrow().hash.as_bytes().to_vec();
+            return EncodedNode::Hash(hash_node.borrow().hash);
         }
 
         let data = self.encode_raw(n.clone());
         // Nodes smaller than 32 bytes are stored inside their parent,
         // Nodes equal to 32 bytes are returned directly
         if data.len() < HASHED_LENGTH {
-            data
+            EncodedNode::Inline(data)
         } else {
             let hash = keccak(&data);
             self.cache
@@ -834,7 +833,7 @@ where
                 .insert(hash.as_bytes().to_vec(), data);
 
             self.gen_keys.borrow_mut().insert(hash.as_bytes().to_vec());
-            hash.as_bytes().to_vec()
+            EncodedNode::Hash(hash)
         }
     }
 
@@ -855,12 +854,10 @@ where
                 let mut stream = RlpStream::new_list(17);
                 for i in 0..16 {
                     let n = borrow_branch.children[i].clone();
-                    let data = self.encode_node(n);
-                    if data.len() == HASHED_LENGTH {
-                        stream.append(&data);
-                    } else {
-                        stream.append_raw(&data, 1);
-                    }
+                    match self.encode_node(n) {
+                        EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
+                        EncodedNode::Inline(data) => stream.append_raw(&data, 1),
+                    };
                 }
 
                 match &borrow_branch.value {
@@ -874,12 +871,10 @@ where
 
                 let mut stream = RlpStream::new_list(2);
                 stream.append(&borrow_ext.prefix.encode_compact());
-                let data = self.encode_node(borrow_ext.node.clone());
-                if data.len() == HASHED_LENGTH {
-                    stream.append(&data);
-                } else {
-                    stream.append_raw(&data, 1);
-                }
+                match self.encode_node(borrow_ext.node.clone()) {
+                    EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
+                    EncodedNode::Inline(data) => stream.append_raw(&data, 1),
+                };
                 stream.out()
             }
             Node::Hash(_hash) => unreachable!(),
