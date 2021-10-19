@@ -359,7 +359,7 @@ where
     /// with the node that proves the absence of the key.
     fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>> {
         let key_path = &Nibbles::from_raw(key, true);
-        let result = self.get_path_at(self.root.clone(), key_path, 0);
+        let result = self.get_path_at(&self.root, key_path, 0);
 
         if let Err(TrieError::MissingTrieNode {
             node_hash,
@@ -736,9 +736,14 @@ where
     // add them in the path.
     // In the code below, we only add the nodes get by `get_node_from_hash`, because they contains
     // all data stored in db, including nodes whose encoded data is less than hash length.
-    fn get_path_at(&self, n: Node, path: &Nibbles, path_index: usize) -> TrieResult<Vec<Node>> {
+    fn get_path_at(
+        &self,
+        source_node: &Node,
+        path: &Nibbles,
+        path_index: usize,
+    ) -> TrieResult<Vec<Node>> {
         let partial = &path.offset(path_index);
-        match n {
+        match source_node {
             Node::Empty | Node::Leaf(_) => Ok(vec![]),
             Node::Branch(branch) => {
                 let borrow_branch = branch.borrow();
@@ -746,7 +751,7 @@ where
                 if partial.is_empty() || partial.at(0) == 16 {
                     Ok(vec![])
                 } else {
-                    let node = borrow_branch.children[partial.at(0)].clone();
+                    let node = &borrow_branch.children[partial.at(0)];
                     self.get_path_at(node, path, path_index + 1)
                 }
             }
@@ -757,7 +762,7 @@ where
                 let match_len = partial.common_prefix(prefix);
 
                 if match_len == prefix.len() {
-                    self.get_path_at(borrow_ext.node.clone(), path, path_index + match_len)
+                    self.get_path_at(&borrow_ext.node, path, path_index + match_len)
                 } else {
                     Ok(vec![])
                 }
@@ -772,7 +777,7 @@ where
                         root_hash: Some(self.root_hash),
                         err_key: None,
                     })?;
-                let mut rest = self.get_path_at(n.clone(), path, path_index)?;
+                let mut rest = self.get_path_at(&n, path, path_index)?;
                 rest.push(n);
                 Ok(rest)
             }
