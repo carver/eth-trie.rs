@@ -789,7 +789,7 @@ where
     }
 
     fn commit(&mut self) -> TrieResult<H256> {
-        let root_hash = match self.encode_node(self.root.clone()) {
+        let root_hash = match self.encode_node(&self.root) {
             EncodedNode::Hash(hash) => hash,
             EncodedNode::Inline(encoded) => {
                 let hash = keccak(&encoded);
@@ -832,13 +832,13 @@ where
         Ok(root_hash)
     }
 
-    fn encode_node(&self, n: Node) -> EncodedNode {
+    fn encode_node(&self, to_encode: &Node) -> EncodedNode {
         // Returns the hash value directly to avoid double counting.
-        if let Node::Hash(hash_node) = n {
+        if let Node::Hash(hash_node) = to_encode {
             return EncodedNode::Hash(hash_node.borrow().hash);
         }
 
-        let data = self.encode_raw(&n);
+        let data = self.encode_raw(to_encode);
         // Nodes smaller than 32 bytes are stored inside their parent,
         // Nodes equal to 32 bytes are returned directly
         if data.len() < HASHED_LENGTH {
@@ -870,7 +870,7 @@ where
 
                 let mut stream = RlpStream::new_list(17);
                 for i in 0..16 {
-                    let n = borrow_branch.children[i].clone();
+                    let n = &borrow_branch.children[i];
                     match self.encode_node(n) {
                         EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
                         EncodedNode::Inline(data) => stream.append_raw(&data, 1),
@@ -888,7 +888,7 @@ where
 
                 let mut stream = RlpStream::new_list(2);
                 stream.append(&borrow_ext.prefix.encode_compact());
-                match self.encode_node(borrow_ext.node.clone()) {
+                match self.encode_node(&borrow_ext.node) {
                     EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
                     EncodedNode::Inline(data) => stream.append_raw(&data, 1),
                 };
