@@ -265,7 +265,7 @@ where
     /// Returns the value for key stored in the trie.
     fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>> {
         let path = &Nibbles::from_raw(key, true);
-        let result = self.get_at(self.root.clone(), path, 0);
+        let result = self.get_at(&self.root, path, 0);
         if let Err(TrieError::MissingTrieNode {
             node_hash,
             traversed,
@@ -287,9 +287,7 @@ where
     /// Checks that the key is present in the trie
     fn contains(&self, key: &[u8]) -> TrieResult<bool> {
         let path = &Nibbles::from_raw(key, true);
-        Ok(self
-            .get_at(self.root.clone(), path, 0)?
-            .map_or(false, |_| true))
+        Ok(self.get_at(&self.root, path, 0)?.map_or(false, |_| true))
     }
 
     /// Inserts value into trie and modifies it if it exists
@@ -324,7 +322,7 @@ where
     /// Removes any existing value for key from the trie.
     fn remove(&mut self, key: &[u8]) -> TrieResult<bool> {
         let path = &Nibbles::from_raw(key, true);
-        let result = self.delete_at(self.root.clone(), path, 0);
+        let result = self.delete_at(&self.root, path, 0);
 
         if let Err(TrieError::MissingTrieNode {
             node_hash,
@@ -361,7 +359,7 @@ where
     /// with the node that proves the absence of the key.
     fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>> {
         let key_path = &Nibbles::from_raw(key, true);
-        let result = self.get_path_at(self.root.clone(), key_path, 0);
+        let result = self.get_path_at(&self.root, key_path, 0);
 
         if let Err(TrieError::MissingTrieNode {
             node_hash,
@@ -382,7 +380,11 @@ where
                 Node::Empty => {}
                 _ => path.push(self.root.clone()),
             }
-            Ok(path.into_iter().rev().map(|n| self.encode_raw(n)).collect())
+            Ok(path
+                .into_iter()
+                .rev()
+                .map(|n| self.encode_raw(&n))
+                .collect())
         }
     }
 
@@ -410,9 +412,14 @@ impl<D> EthTrie<D>
 where
     D: DB,
 {
-    fn get_at(&self, n: Node, path: &Nibbles, path_index: usize) -> TrieResult<Option<Vec<u8>>> {
+    fn get_at(
+        &self,
+        source_node: &Node,
+        path: &Nibbles,
+        path_index: usize,
+    ) -> TrieResult<Option<Vec<u8>>> {
         let partial = &path.offset(path_index);
-        match n {
+        match source_node {
             Node::Empty => Ok(None),
             Node::Leaf(leaf) => {
                 let borrow_leaf = leaf.borrow();
@@ -430,7 +437,7 @@ where
                     Ok(borrow_branch.value.clone())
                 } else {
                     let index = partial.at(0);
-                    self.get_at(borrow_branch.children[index].clone(), path, path_index + 1)
+                    self.get_at(&borrow_branch.children[index], path, path_index + 1)
                 }
             }
             Node::Extension(extension) => {
@@ -439,7 +446,7 @@ where
                 let prefix = &extension.prefix;
                 let match_len = partial.common_prefix(prefix);
                 if match_len == prefix.len() {
-                    self.get_at(extension.node.clone(), path, path_index + match_len)
+                    self.get_at(&extension.node, path, path_index + match_len)
                 } else {
                     Ok(None)
                 }
@@ -454,7 +461,7 @@ where
                             root_hash: Some(self.root_hash),
                             err_key: None,
                         })?;
-                self.get_at(node, path, path_index)
+                self.get_at(&node, path, path_index)
             }
         }
     }
@@ -572,9 +579,14 @@ where
         }
     }
 
-    fn delete_at(&self, n: Node, path: &Nibbles, path_index: usize) -> TrieResult<(Node, bool)> {
+    fn delete_at(
+        &self,
+        old_node: &Node,
+        path: &Nibbles,
+        path_index: usize,
+    ) -> TrieResult<(Node, bool)> {
         let partial = &path.offset(path_index);
-        let (new_n, deleted) = match n {
+        let (new_node, deleted) = match old_node {
             Node::Empty => Ok((Node::Empty, false)),
             Node::Leaf(leaf) => {
                 let borrow_leaf = leaf.borrow();
@@ -593,11 +605,11 @@ where
                 }
 
                 let index = partial.at(0);
-                let node = borrow_branch.children[index].clone();
+                let child = &borrow_branch.children[index];
 
-                let (new_n, deleted) = self.delete_at(node, path, path_index + 1)?;
+                let (new_child, deleted) = self.delete_at(child, path, path_index + 1)?;
                 if deleted {
-                    borrow_branch.children[index] = new_n;
+                    borrow_branch.children[index] = new_child;
                 }
 
                 Ok((Node::Branch(branch.clone()), deleted))
@@ -609,11 +621,11 @@ where
                 let match_len = partial.common_prefix(prefix);
 
                 if match_len == prefix.len() {
-                    let (new_n, deleted) =
-                        self.delete_at(borrow_ext.node.clone(), path, path_index + match_len)?;
+                    let (new_node, deleted) =
+                        self.delete_at(&borrow_ext.node, path, path_index + match_len)?;
 
                     if deleted {
-                        borrow_ext.node = new_n;
+                        borrow_ext.node = new_node;
                     }
 
                     Ok((Node::Extension(ext.clone()), deleted))
@@ -635,14 +647,14 @@ where
                             root_hash: Some(self.root_hash),
                             err_key: None,
                         })?;
-                self.delete_at(node, path, path_index)
+                self.delete_at(&node, path, path_index)
             }
         }?;
 
         if deleted {
-            Ok((self.degenerate(new_n)?, deleted))
+            Ok((self.degenerate(new_node)?, deleted))
         } else {
-            Ok((new_n, deleted))
+            Ok((new_node, deleted))
         }
     }
 
@@ -728,9 +740,14 @@ where
     // add them in the path.
     // In the code below, we only add the nodes get by `get_node_from_hash`, because they contains
     // all data stored in db, including nodes whose encoded data is less than hash length.
-    fn get_path_at(&self, n: Node, path: &Nibbles, path_index: usize) -> TrieResult<Vec<Node>> {
+    fn get_path_at(
+        &self,
+        source_node: &Node,
+        path: &Nibbles,
+        path_index: usize,
+    ) -> TrieResult<Vec<Node>> {
         let partial = &path.offset(path_index);
-        match n {
+        match source_node {
             Node::Empty | Node::Leaf(_) => Ok(vec![]),
             Node::Branch(branch) => {
                 let borrow_branch = branch.borrow();
@@ -738,7 +755,7 @@ where
                 if partial.is_empty() || partial.at(0) == 16 {
                     Ok(vec![])
                 } else {
-                    let node = borrow_branch.children[partial.at(0)].clone();
+                    let node = &borrow_branch.children[partial.at(0)];
                     self.get_path_at(node, path, path_index + 1)
                 }
             }
@@ -749,7 +766,7 @@ where
                 let match_len = partial.common_prefix(prefix);
 
                 if match_len == prefix.len() {
-                    self.get_path_at(borrow_ext.node.clone(), path, path_index + match_len)
+                    self.get_path_at(&borrow_ext.node, path, path_index + match_len)
                 } else {
                     Ok(vec![])
                 }
@@ -764,7 +781,7 @@ where
                         root_hash: Some(self.root_hash),
                         err_key: None,
                     })?;
-                let mut rest = self.get_path_at(n.clone(), path, path_index)?;
+                let mut rest = self.get_path_at(&n, path, path_index)?;
                 rest.push(n);
                 Ok(rest)
             }
@@ -772,7 +789,7 @@ where
     }
 
     fn commit(&mut self) -> TrieResult<H256> {
-        let root_hash = match self.encode_node(self.root.clone()) {
+        let root_hash = match self.encode_node(&self.root) {
             EncodedNode::Hash(hash) => hash,
             EncodedNode::Inline(encoded) => {
                 let hash = keccak(&encoded);
@@ -815,13 +832,13 @@ where
         Ok(root_hash)
     }
 
-    fn encode_node(&self, n: Node) -> EncodedNode {
+    fn encode_node(&self, to_encode: &Node) -> EncodedNode {
         // Returns the hash value directly to avoid double counting.
-        if let Node::Hash(hash_node) = n {
+        if let Node::Hash(hash_node) = to_encode {
             return EncodedNode::Hash(hash_node.borrow().hash);
         }
 
-        let data = self.encode_raw(n.clone());
+        let data = self.encode_raw(to_encode);
         // Nodes smaller than 32 bytes are stored inside their parent,
         // Nodes equal to 32 bytes are returned directly
         if data.len() < HASHED_LENGTH {
@@ -837,8 +854,8 @@ where
         }
     }
 
-    fn encode_raw(&self, n: Node) -> Vec<u8> {
-        match n {
+    fn encode_raw(&self, node: &Node) -> Vec<u8> {
+        match node {
             Node::Empty => rlp::NULL_RLP.to_vec(),
             Node::Leaf(leaf) => {
                 let borrow_leaf = leaf.borrow();
@@ -853,7 +870,7 @@ where
 
                 let mut stream = RlpStream::new_list(17);
                 for i in 0..16 {
-                    let n = borrow_branch.children[i].clone();
+                    let n = &borrow_branch.children[i];
                     match self.encode_node(n) {
                         EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
                         EncodedNode::Inline(data) => stream.append_raw(&data, 1),
@@ -871,7 +888,7 @@ where
 
                 let mut stream = RlpStream::new_list(2);
                 stream.append(&borrow_ext.prefix.encode_compact());
-                match self.encode_node(borrow_ext.node.clone()) {
+                match self.encode_node(&borrow_ext.node) {
                     EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
                     EncodedNode::Inline(data) => stream.append_raw(&data, 1),
                 };
