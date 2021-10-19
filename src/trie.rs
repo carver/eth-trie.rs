@@ -380,7 +380,11 @@ where
                 Node::Empty => {}
                 _ => path.push(self.root.clone()),
             }
-            Ok(path.into_iter().rev().map(|n| self.encode_raw(n)).collect())
+            Ok(path
+                .into_iter()
+                .rev()
+                .map(|n| self.encode_raw(&n))
+                .collect())
         }
     }
 
@@ -834,7 +838,7 @@ where
             return EncodedNode::Hash(hash_node.borrow().hash);
         }
 
-        let data = self.encode_raw(n.clone());
+        let data = self.encode_raw(&n);
         // Nodes smaller than 32 bytes are stored inside their parent,
         // Nodes equal to 32 bytes are returned directly
         if data.len() < HASHED_LENGTH {
@@ -850,8 +854,8 @@ where
         }
     }
 
-    fn encode_raw(&self, n: Node) -> Vec<u8> {
-        match n {
+    fn encode_raw(&self, node: &Node) -> Vec<u8> {
+        match node {
             Node::Empty => rlp::NULL_RLP.to_vec(),
             Node::Leaf(leaf) => {
                 let borrow_leaf = leaf.borrow();
