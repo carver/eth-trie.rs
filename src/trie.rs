@@ -265,7 +265,7 @@ where
     /// Returns the value for key stored in the trie.
     fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>> {
         let path = &Nibbles::from_raw(key, true);
-        let result = self.get_at(self.root.clone(), path, 0);
+        let result = self.get_at(&self.root, path, 0);
         if let Err(TrieError::MissingTrieNode {
             node_hash,
             traversed,
@@ -287,9 +287,7 @@ where
     /// Checks that the key is present in the trie
     fn contains(&self, key: &[u8]) -> TrieResult<bool> {
         let path = &Nibbles::from_raw(key, true);
-        Ok(self
-            .get_at(self.root.clone(), path, 0)?
-            .map_or(false, |_| true))
+        Ok(self.get_at(&self.root, path, 0)?.map_or(false, |_| true))
     }
 
     /// Inserts value into trie and modifies it if it exists
@@ -410,9 +408,14 @@ impl<D> EthTrie<D>
 where
     D: DB,
 {
-    fn get_at(&self, n: Node, path: &Nibbles, path_index: usize) -> TrieResult<Option<Vec<u8>>> {
+    fn get_at(
+        &self,
+        source_node: &Node,
+        path: &Nibbles,
+        path_index: usize,
+    ) -> TrieResult<Option<Vec<u8>>> {
         let partial = &path.offset(path_index);
-        match n {
+        match source_node {
             Node::Empty => Ok(None),
             Node::Leaf(leaf) => {
                 let borrow_leaf = leaf.borrow();
@@ -430,7 +433,7 @@ where
                     Ok(borrow_branch.value.clone())
                 } else {
                     let index = partial.at(0);
-                    self.get_at(borrow_branch.children[index].clone(), path, path_index + 1)
+                    self.get_at(&borrow_branch.children[index], path, path_index + 1)
                 }
             }
             Node::Extension(extension) => {
@@ -439,7 +442,7 @@ where
                 let prefix = &extension.prefix;
                 let match_len = partial.common_prefix(prefix);
                 if match_len == prefix.len() {
-                    self.get_at(extension.node.clone(), path, path_index + match_len)
+                    self.get_at(&extension.node, path, path_index + match_len)
                 } else {
                     Ok(None)
                 }
@@ -454,7 +457,7 @@ where
                             root_hash: Some(self.root_hash),
                             err_key: None,
                         })?;
-                self.get_at(node, path, path_index)
+                self.get_at(&node, path, path_index)
             }
         }
     }
