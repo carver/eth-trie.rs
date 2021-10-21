@@ -64,7 +64,7 @@ where
     // The batch of pending new nodes to write
     cache: HashMap<Vec<u8>, Vec<u8>>,
     passing_keys: HashSet<Vec<u8>>,
-    gen_keys: RefCell<HashSet<Vec<u8>>>,
+    gen_keys: HashSet<Vec<u8>>,
 }
 
 enum EncodedNode {
@@ -229,7 +229,7 @@ where
 
             cache: HashMap::new(),
             passing_keys: HashSet::new(),
-            gen_keys: RefCell::new(HashSet::new()),
+            gen_keys: HashSet::new(),
 
             db,
         }
@@ -247,7 +247,7 @@ where
 
                     cache: HashMap::new(),
                     passing_keys: HashSet::new(),
-                    gen_keys: RefCell::new(HashSet::new()),
+                    gen_keys: HashSet::new(),
 
                     db,
                 };
@@ -808,7 +808,7 @@ where
         let removed_keys: Vec<Vec<u8>> = self
             .passing_keys
             .iter()
-            .filter(|h| !self.gen_keys.borrow().contains(&h.to_vec()))
+            .filter(|h| !self.gen_keys.contains(&h.to_vec()))
             .map(|h| h.to_vec())
             .collect();
 
@@ -817,7 +817,7 @@ where
             .map_err(|e| TrieError::DB(e.to_string()))?;
 
         self.root_hash = root_hash;
-        self.gen_keys.borrow_mut().clear();
+        self.gen_keys.clear();
         self.passing_keys.clear();
         self.root = self
             .recover_from_db(root_hash)?
@@ -840,7 +840,7 @@ where
             let hash = keccak(&data);
             self.cache.insert(hash.as_bytes().to_vec(), data);
 
-            self.gen_keys.borrow_mut().insert(hash.as_bytes().to_vec());
+            self.gen_keys.insert(hash.as_bytes().to_vec());
             EncodedNode::Hash(hash)
         }
     }
