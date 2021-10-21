@@ -39,7 +39,8 @@ pub trait Trie<D: DB> {
     /// If the trie does not contain a value for key, the returned proof contains all
     /// nodes of the longest existing prefix of the key (at least the root node), ending
     /// with the node that proves the absence of the key.
-    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>>;
+    // TODO refactor encode_raw() so that it doesn't need a &mut self
+    fn get_proof(&mut self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>>;
 
     /// return value if key exists, None if key not exist, Error if proof is wrong
     fn verify_proof(
@@ -60,7 +61,8 @@ where
 
     db: Arc<D>,
 
-    cache: RefCell<HashMap<Vec<u8>, Vec<u8>>>,
+    // The batch of pending new nodes to write
+    cache: HashMap<Vec<u8>, Vec<u8>>,
     passing_keys: RefCell<HashSet<Vec<u8>>>,
     gen_keys: RefCell<HashSet<Vec<u8>>>,
 }
@@ -225,7 +227,7 @@ where
             root: Node::Empty,
             root_hash: keccak(&rlp::NULL_RLP.to_vec()),
 
-            cache: RefCell::new(HashMap::new()),
+            cache: HashMap::new(),
             passing_keys: RefCell::new(HashSet::new()),
             gen_keys: RefCell::new(HashSet::new()),
 
@@ -243,7 +245,7 @@ where
                     root: Node::Empty,
                     root_hash: root,
 
-                    cache: RefCell::new(HashMap::new()),
+                    cache: HashMap::new(),
                     passing_keys: RefCell::new(HashSet::new()),
                     gen_keys: RefCell::new(HashSet::new()),
 
@@ -357,7 +359,7 @@ where
     /// If the trie does not contain a value for key, the returned proof contains all
     /// nodes of the longest existing prefix of the key (at least the root node), ending
     /// with the node that proves the absence of the key.
-    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>> {
+    fn get_proof(&mut self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>> {
         let key_path = &Nibbles::from_raw(key, true);
         let result = self.get_path_at(&self.root, key_path, 0);
 
@@ -789,20 +791,18 @@ where
     }
 
     fn commit(&mut self) -> TrieResult<H256> {
-        let root_hash = match self.encode_node(&self.root) {
+        let root_hash = match self.write_node(&self.root.clone()) {
             EncodedNode::Hash(hash) => hash,
             EncodedNode::Inline(encoded) => {
                 let hash = keccak(&encoded);
-                self.cache
-                    .borrow_mut()
-                    .insert(hash.as_bytes().to_vec(), encoded);
+                self.cache.insert(hash.as_bytes().to_vec(), encoded);
                 hash
             }
         };
 
-        let mut keys = Vec::with_capacity(self.cache.borrow().len());
-        let mut values = Vec::with_capacity(self.cache.borrow().len());
-        for (k, v) in self.cache.borrow_mut().drain() {
+        let mut keys = Vec::with_capacity(self.cache.len());
+        let mut values = Vec::with_capacity(self.cache.len());
+        for (k, v) in self.cache.drain() {
             keys.push(k.to_vec());
             values.push(v);
         }
@@ -832,7 +832,7 @@ where
         Ok(root_hash)
     }
 
-    fn encode_node(&self, to_encode: &Node) -> EncodedNode {
+    fn write_node(&mut self, to_encode: &Node) -> EncodedNode {
         // Returns the hash value directly to avoid double counting.
         if let Node::Hash(hash_node) = to_encode {
             return EncodedNode::Hash(hash_node.borrow().hash);
@@ -845,16 +845,14 @@ where
             EncodedNode::Inline(data)
         } else {
             let hash = keccak(&data);
-            self.cache
-                .borrow_mut()
-                .insert(hash.as_bytes().to_vec(), data);
+            self.cache.insert(hash.as_bytes().to_vec(), data);
 
             self.gen_keys.borrow_mut().insert(hash.as_bytes().to_vec());
             EncodedNode::Hash(hash)
         }
     }
 
-    fn encode_raw(&self, node: &Node) -> Vec<u8> {
+    fn encode_raw(&mut self, node: &Node) -> Vec<u8> {
         match node {
             Node::Empty => rlp::NULL_RLP.to_vec(),
             Node::Leaf(leaf) => {
@@ -871,7 +869,7 @@ where
                 let mut stream = RlpStream::new_list(17);
                 for i in 0..16 {
                     let n = &borrow_branch.children[i];
-                    match self.encode_node(n) {
+                    match self.write_node(n) {
                         EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
                         EncodedNode::Inline(data) => stream.append_raw(&data, 1),
                     };
@@ -888,7 +886,7 @@ where
 
                 let mut stream = RlpStream::new_list(2);
                 stream.append(&borrow_ext.prefix.encode_compact());
-                match self.encode_node(&borrow_ext.node) {
+                match self.write_node(&borrow_ext.node) {
                     EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
                     EncodedNode::Inline(data) => stream.append_raw(&data, 1),
                 };
@@ -1100,7 +1098,7 @@ mod tests {
     #[test]
     /// When a database entry is missing, get_proof returns a MissingTrieNode error
     fn test_trie_get_proof_corrupt() {
-        let (trie, actual_root_hash, deleted_node_hash) = corrupt_trie();
+        let (mut trie, actual_root_hash, deleted_node_hash) = corrupt_trie();
 
         let result = trie.get_proof(b"test2-key");
 
