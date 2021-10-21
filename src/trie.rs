@@ -63,7 +63,7 @@ where
 
     // The batch of pending new nodes to write
     cache: HashMap<Vec<u8>, Vec<u8>>,
-    passing_keys: RefCell<HashSet<Vec<u8>>>,
+    passing_keys: HashSet<Vec<u8>>,
     gen_keys: RefCell<HashSet<Vec<u8>>>,
 }
 
@@ -228,7 +228,7 @@ where
             root_hash: keccak(&rlp::NULL_RLP.to_vec()),
 
             cache: HashMap::new(),
-            passing_keys: RefCell::new(HashSet::new()),
+            passing_keys: HashSet::new(),
             gen_keys: RefCell::new(HashSet::new()),
 
             db,
@@ -246,7 +246,7 @@ where
                     root_hash: root,
 
                     cache: HashMap::new(),
-                    passing_keys: RefCell::new(HashSet::new()),
+                    passing_keys: HashSet::new(),
                     gen_keys: RefCell::new(HashSet::new()),
 
                     db,
@@ -324,7 +324,7 @@ where
     /// Removes any existing value for key from the trie.
     fn remove(&mut self, key: &[u8]) -> TrieResult<bool> {
         let path = &Nibbles::from_raw(key, true);
-        let result = self.delete_at(&self.root, path, 0);
+        let result = self.delete_at(&self.root.clone(), path, 0);
 
         if let Err(TrieError::MissingTrieNode {
             node_hash,
@@ -469,7 +469,7 @@ where
     }
 
     fn insert_at(
-        &self,
+        &mut self,
         n: Node,
         path: &Nibbles,
         path_index: usize,
@@ -565,9 +565,7 @@ where
             }
             Node::Hash(hash_node) => {
                 let node_hash = hash_node.borrow().hash;
-                self.passing_keys
-                    .borrow_mut()
-                    .insert(node_hash.as_bytes().to_vec());
+                self.passing_keys.insert(node_hash.as_bytes().to_vec());
                 let node =
                     self.recover_from_db(node_hash)?
                         .ok_or_else(|| TrieError::MissingTrieNode {
@@ -582,7 +580,7 @@ where
     }
 
     fn delete_at(
-        &self,
+        &mut self,
         old_node: &Node,
         path: &Nibbles,
         path_index: usize,
@@ -637,9 +635,7 @@ where
             }
             Node::Hash(hash_node) => {
                 let hash = hash_node.borrow().hash;
-                self.passing_keys
-                    .borrow_mut()
-                    .insert(hash.as_bytes().to_vec());
+                self.passing_keys.insert(hash.as_bytes().to_vec());
 
                 let node =
                     self.recover_from_db(hash)?
@@ -663,7 +659,7 @@ where
     // This refactors the trie after a node deletion, as necessary.
     // For example, if a deletion removes a child of a branch node, leaving only one child left, it
     // needs to be modified into an extension and maybe combined with its parent and/or child node.
-    fn degenerate(&self, n: Node) -> TrieResult<Node> {
+    fn degenerate(&mut self, n: Node) -> TrieResult<Node> {
         match n {
             Node::Branch(branch) => {
                 let borrow_branch = branch.borrow();
@@ -713,9 +709,7 @@ where
                     // try again after recovering node from the db.
                     Node::Hash(hash_node) => {
                         let node_hash = hash_node.borrow().hash;
-                        self.passing_keys
-                            .borrow_mut()
-                            .insert(node_hash.as_bytes().to_vec());
+                        self.passing_keys.insert(node_hash.as_bytes().to_vec());
 
                         let new_node =
                             self.recover_from_db(node_hash)?
@@ -813,7 +807,6 @@ where
 
         let removed_keys: Vec<Vec<u8>> = self
             .passing_keys
-            .borrow()
             .iter()
             .filter(|h| !self.gen_keys.borrow().contains(&h.to_vec()))
             .map(|h| h.to_vec())
@@ -825,7 +818,7 @@ where
 
         self.root_hash = root_hash;
         self.gen_keys.borrow_mut().clear();
-        self.passing_keys.borrow_mut().clear();
+        self.passing_keys.clear();
         self.root = self
             .recover_from_db(root_hash)?
             .expect("The root that was just created is missing");
