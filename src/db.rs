@@ -14,8 +14,6 @@ pub trait DB: Send + Sync {
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
 
-    fn contains(&self, key: &[u8]) -> Result<bool, Self::Error>;
-
     /// Insert data into the cache.
     fn insert(&self, key: &[u8], value: Vec<u8>) -> Result<(), Self::Error>;
 
@@ -81,10 +79,6 @@ impl DB for MemoryDB {
         Ok(())
     }
 
-    fn contains(&self, key: &[u8]) -> Result<bool, Self::Error> {
-        Ok(self.storage.read().contains_key(key))
-    }
-
     fn remove(&self, key: &[u8]) -> Result<(), Self::Error> {
         if self.light {
             self.storage.write().remove(key);
@@ -120,21 +114,12 @@ mod tests {
     }
 
     #[test]
-    fn test_memdb_contains() {
-        let memdb = MemoryDB::new(true);
-        memdb.insert(b"test", b"test".to_vec()).unwrap();
-
-        let contains = memdb.contains(b"test").unwrap();
-        assert_eq!(contains, true)
-    }
-
-    #[test]
     fn test_memdb_remove() {
         let memdb = MemoryDB::new(true);
         memdb.insert(b"test", b"test".to_vec()).unwrap();
 
         memdb.remove(b"test").unwrap();
-        let contains = memdb.contains(b"test").unwrap();
-        assert_eq!(contains, false)
+        let contains = memdb.get(b"test").unwrap();
+        assert_eq!(contains, None)
     }
 }
