@@ -7,15 +7,15 @@ use crate::nibbles::Nibbles;
 #[derive(Debug, Clone)]
 pub enum Node {
     Empty,
-    Leaf(Arc<RwLock<LeafNode>>),
+    Leaf(Arc<LeafNode>),
     Extension(Arc<RwLock<ExtensionNode>>),
     Branch(Arc<RwLock<BranchNode>>),
-    Hash(Arc<RwLock<HashNode>>),
+    Hash(Arc<HashNode>),
 }
 
 impl Node {
     pub fn from_leaf(key: Nibbles, value: Vec<u8>) -> Self {
-        let leaf = Arc::new(RwLock::new(LeafNode { key, value }));
+        let leaf = Arc::new(LeafNode { key, value });
         Node::Leaf(leaf)
     }
 
@@ -30,7 +30,7 @@ impl Node {
     }
 
     pub fn from_hash(hash: H256) -> Self {
-        let hash_node = Arc::new(RwLock::new(HashNode { hash }));
+        let hash_node = Arc::new(HashNode { hash });
         Node::Hash(hash_node)
     }
 }
@@ -52,7 +52,7 @@ impl BranchNode {
         if i == 16 {
             match n {
                 Node::Leaf(leaf) => {
-                    self.value = Some(leaf.read().unwrap().value.clone());
+                    self.value = Some(leaf.value.clone());
                 }
                 _ => panic!("The n must be leaf node"),
             }
