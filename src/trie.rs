@@ -133,8 +133,7 @@ where
                         match *node {
                             Node::Leaf(ref leaf) => {
                                 let cur_len = self.nibble.len();
-                                self.nibble
-                                    .truncate(cur_len - leaf.read().unwrap().key.len());
+                                self.nibble.truncate(cur_len - leaf.key.len());
                             }
 
                             Node::Extension(ref ext) => {
@@ -157,11 +156,8 @@ where
                     }
 
                     (TraceStatus::Doing, Node::Leaf(ref leaf)) => {
-                        self.nibble.extend(&leaf.read().unwrap().key);
-                        return Some((
-                            self.nibble.encode_raw().0,
-                            leaf.read().unwrap().value.clone(),
-                        ));
+                        self.nibble.extend(&leaf.key);
+                        return Some((self.nibble.encode_raw().0, leaf.value.clone()));
                     }
 
                     (TraceStatus::Doing, Node::Branch(ref branch)) => {
@@ -174,7 +170,7 @@ where
                     }
 
                     (TraceStatus::Doing, Node::Hash(ref hash_node)) => {
-                        let node_hash = hash_node.read().unwrap().hash;
+                        let node_hash = hash_node.hash;
                         if let Ok(n) = self.trie.recover_from_db(node_hash) {
                             self.nodes.pop();
                             match n {
@@ -427,10 +423,8 @@ where
         match source_node {
             Node::Empty => Ok(None),
             Node::Leaf(leaf) => {
-                let borrow_leaf = leaf.read().unwrap();
-
-                if &borrow_leaf.key == partial {
-                    Ok(Some(borrow_leaf.value.clone()))
+                if &leaf.key == partial {
+                    Ok(Some(leaf.value.clone()))
                 } else {
                     Ok(None)
                 }
@@ -457,7 +451,7 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let node_hash = hash_node.read().unwrap().hash;
+                let node_hash = hash_node.hash;
                 let node =
                     self.recover_from_db(node_hash)?
                         .ok_or_else(|| TrieError::MissingTrieNode {
@@ -482,14 +476,10 @@ where
         match n {
             Node::Empty => Ok(Node::from_leaf(partial, value)),
             Node::Leaf(leaf) => {
-                let mut borrow_leaf = leaf.write().unwrap();
-
-                let old_partial = &borrow_leaf.key;
+                let old_partial = &leaf.key;
                 let match_index = partial.common_prefix(old_partial);
                 if match_index == old_partial.len() {
-                    // replace leaf value
-                    borrow_leaf.value = value;
-                    return Ok(Node::Leaf(leaf.clone()));
+                    return Ok(Node::from_leaf(leaf.key.clone(), value));
                 }
 
                 let mut branch = BranchNode {
@@ -497,10 +487,7 @@ where
                     value: None,
                 };
 
-                let n = Node::from_leaf(
-                    old_partial.offset(match_index + 1),
-                    borrow_leaf.value.clone(),
-                );
+                let n = Node::from_leaf(old_partial.offset(match_index + 1), leaf.value.clone());
                 branch.insert(old_partial.at(match_index), n);
 
                 let n = Node::from_leaf(partial.offset(match_index + 1), value);
@@ -567,7 +554,7 @@ where
                 Ok(Node::Extension(ext.clone()))
             }
             Node::Hash(hash_node) => {
-                let node_hash = hash_node.read().unwrap().hash;
+                let node_hash = hash_node.hash;
                 self.passing_keys.insert(node_hash.as_bytes().to_vec());
                 let node =
                     self.recover_from_db(node_hash)?
@@ -592,9 +579,7 @@ where
         let (new_node, deleted) = match old_node {
             Node::Empty => Ok((Node::Empty, false)),
             Node::Leaf(leaf) => {
-                let borrow_leaf = leaf.read().unwrap();
-
-                if &borrow_leaf.key == partial {
+                if &leaf.key == partial {
                     return Ok((Node::Empty, true));
                 }
                 Ok((Node::Leaf(leaf.clone()), false))
@@ -637,7 +622,7 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let hash = hash_node.read().unwrap().hash;
+                let hash = hash_node.hash;
                 self.passing_keys.insert(hash.as_bytes().to_vec());
 
                 let node =
@@ -704,14 +689,12 @@ where
                         self.degenerate(new_n)
                     }
                     Node::Leaf(leaf) => {
-                        let borrow_leaf = leaf.read().unwrap();
-
-                        let new_prefix = prefix.join(&borrow_leaf.key);
-                        Ok(Node::from_leaf(new_prefix, borrow_leaf.value.clone()))
+                        let new_prefix = prefix.join(&leaf.key);
+                        Ok(Node::from_leaf(new_prefix, leaf.value.clone()))
                     }
                     // try again after recovering node from the db.
                     Node::Hash(hash_node) => {
-                        let node_hash = hash_node.read().unwrap().hash;
+                        let node_hash = hash_node.hash;
                         self.passing_keys.insert(node_hash.as_bytes().to_vec());
 
                         let new_node =
@@ -771,7 +754,7 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let node_hash = hash_node.read().unwrap().hash;
+                let node_hash = hash_node.hash;
                 let n = self
                     .recover_from_db(node_hash)?
                     .ok_or(TrieError::MissingTrieNode {
@@ -831,7 +814,7 @@ where
     fn write_node(&mut self, to_encode: &Node) -> EncodedNode {
         // Returns the hash value directly to avoid double counting.
         if let Node::Hash(hash_node) = to_encode {
-            return EncodedNode::Hash(hash_node.read().unwrap().hash);
+            return EncodedNode::Hash(hash_node.hash);
         }
 
         let data = self.encode_raw(to_encode);
@@ -852,11 +835,9 @@ where
         match node {
             Node::Empty => rlp::NULL_RLP.to_vec(),
             Node::Leaf(leaf) => {
-                let borrow_leaf = leaf.read().unwrap();
-
                 let mut stream = RlpStream::new_list(2);
-                stream.append(&borrow_leaf.key.encode_compact());
-                stream.append(&borrow_leaf.value);
+                stream.append(&leaf.key.encode_compact());
+                stream.append(&leaf.value);
                 stream.out()
             }
             Node::Branch(branch) => {
