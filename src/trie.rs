@@ -1,6 +1,4 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use hashbrown::{HashMap, HashSet};
 use keccak_hash::{keccak, H256};
@@ -39,7 +37,8 @@ pub trait Trie<D: DB> {
     /// If the trie does not contain a value for key, the returned proof contains all
     /// nodes of the longest existing prefix of the key (at least the root node), ending
     /// with the node that proves the absence of the key.
-    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>>;
+    // TODO refactor encode_raw() so that it doesn't need a &mut self
+    fn get_proof(&mut self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>>;
 
     /// return value if key exists, None if key not exist, Error if proof is wrong
     fn verify_proof(
@@ -60,9 +59,10 @@ where
 
     db: Arc<D>,
 
-    cache: RefCell<HashMap<Vec<u8>, Vec<u8>>>,
-    passing_keys: RefCell<HashSet<Vec<u8>>>,
-    gen_keys: RefCell<HashSet<Vec<u8>>>,
+    // The batch of pending new nodes to write
+    cache: HashMap<Vec<u8>, Vec<u8>>,
+    passing_keys: HashSet<Vec<u8>>,
+    gen_keys: HashSet<Vec<u8>>,
 }
 
 enum EncodedNode {
@@ -133,12 +133,14 @@ where
                         match *node {
                             Node::Leaf(ref leaf) => {
                                 let cur_len = self.nibble.len();
-                                self.nibble.truncate(cur_len - leaf.borrow().key.len());
+                                self.nibble
+                                    .truncate(cur_len - leaf.read().unwrap().key.len());
                             }
 
                             Node::Extension(ref ext) => {
                                 let cur_len = self.nibble.len();
-                                self.nibble.truncate(cur_len - ext.borrow().prefix.len());
+                                self.nibble
+                                    .truncate(cur_len - ext.read().unwrap().prefix.len());
                             }
 
                             Node::Branch(_) => {
@@ -150,17 +152,20 @@ where
                     }
 
                     (TraceStatus::Doing, Node::Extension(ref ext)) => {
-                        self.nibble.extend(&ext.borrow().prefix);
-                        self.nodes.push((ext.borrow().node.clone()).into());
+                        self.nibble.extend(&ext.read().unwrap().prefix);
+                        self.nodes.push((ext.read().unwrap().node.clone()).into());
                     }
 
                     (TraceStatus::Doing, Node::Leaf(ref leaf)) => {
-                        self.nibble.extend(&leaf.borrow().key);
-                        return Some((self.nibble.encode_raw().0, leaf.borrow().value.clone()));
+                        self.nibble.extend(&leaf.read().unwrap().key);
+                        return Some((
+                            self.nibble.encode_raw().0,
+                            leaf.read().unwrap().value.clone(),
+                        ));
                     }
 
                     (TraceStatus::Doing, Node::Branch(ref branch)) => {
-                        let value_option = branch.borrow().value.clone();
+                        let value_option = branch.read().unwrap().value.clone();
                         if let Some(value) = value_option {
                             return Some((self.nibble.encode_raw().0, value));
                         } else {
@@ -169,7 +174,7 @@ where
                     }
 
                     (TraceStatus::Doing, Node::Hash(ref hash_node)) => {
-                        let node_hash = hash_node.borrow().hash;
+                        let node_hash = hash_node.read().unwrap().hash;
                         if let Ok(n) = self.trie.recover_from_db(node_hash) {
                             self.nodes.pop();
                             match n {
@@ -193,7 +198,7 @@ where
                             self.nibble.push(i);
                         }
                         self.nodes
-                            .push((branch.borrow().children[i as usize].clone()).into());
+                            .push((branch.read().unwrap().children[i as usize].clone()).into());
                     }
 
                     (_, Node::Empty) => {
@@ -225,9 +230,9 @@ where
             root: Node::Empty,
             root_hash: keccak(&rlp::NULL_RLP.to_vec()),
 
-            cache: RefCell::new(HashMap::new()),
-            passing_keys: RefCell::new(HashSet::new()),
-            gen_keys: RefCell::new(HashSet::new()),
+            cache: HashMap::new(),
+            passing_keys: HashSet::new(),
+            gen_keys: HashSet::new(),
 
             db,
         }
@@ -243,9 +248,9 @@ where
                     root: Node::Empty,
                     root_hash: root,
 
-                    cache: RefCell::new(HashMap::new()),
-                    passing_keys: RefCell::new(HashSet::new()),
-                    gen_keys: RefCell::new(HashSet::new()),
+                    cache: HashMap::new(),
+                    passing_keys: HashSet::new(),
+                    gen_keys: HashSet::new(),
 
                     db,
                 };
@@ -322,7 +327,7 @@ where
     /// Removes any existing value for key from the trie.
     fn remove(&mut self, key: &[u8]) -> TrieResult<bool> {
         let path = &Nibbles::from_raw(key, true);
-        let result = self.delete_at(&self.root, path, 0);
+        let result = self.delete_at(&self.root.clone(), path, 0);
 
         if let Err(TrieError::MissingTrieNode {
             node_hash,
@@ -357,7 +362,7 @@ where
     /// If the trie does not contain a value for key, the returned proof contains all
     /// nodes of the longest existing prefix of the key (at least the root node), ending
     /// with the node that proves the absence of the key.
-    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>> {
+    fn get_proof(&mut self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>> {
         let key_path = &Nibbles::from_raw(key, true);
         let result = self.get_path_at(&self.root, key_path, 0);
 
@@ -422,7 +427,7 @@ where
         match source_node {
             Node::Empty => Ok(None),
             Node::Leaf(leaf) => {
-                let borrow_leaf = leaf.borrow();
+                let borrow_leaf = leaf.read().unwrap();
 
                 if &borrow_leaf.key == partial {
                     Ok(Some(borrow_leaf.value.clone()))
@@ -431,7 +436,7 @@ where
                 }
             }
             Node::Branch(branch) => {
-                let borrow_branch = branch.borrow();
+                let borrow_branch = branch.read().unwrap();
 
                 if partial.is_empty() || partial.at(0) == 16 {
                     Ok(borrow_branch.value.clone())
@@ -441,7 +446,7 @@ where
                 }
             }
             Node::Extension(extension) => {
-                let extension = extension.borrow();
+                let extension = extension.read().unwrap();
 
                 let prefix = &extension.prefix;
                 let match_len = partial.common_prefix(prefix);
@@ -452,7 +457,7 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let node_hash = hash_node.borrow().hash;
+                let node_hash = hash_node.read().unwrap().hash;
                 let node =
                     self.recover_from_db(node_hash)?
                         .ok_or_else(|| TrieError::MissingTrieNode {
@@ -467,7 +472,7 @@ where
     }
 
     fn insert_at(
-        &self,
+        &mut self,
         n: Node,
         path: &Nibbles,
         path_index: usize,
@@ -477,7 +482,7 @@ where
         match n {
             Node::Empty => Ok(Node::from_leaf(partial, value)),
             Node::Leaf(leaf) => {
-                let mut borrow_leaf = leaf.borrow_mut();
+                let mut borrow_leaf = leaf.write().unwrap();
 
                 let old_partial = &borrow_leaf.key;
                 let match_index = partial.common_prefix(old_partial);
@@ -502,17 +507,17 @@ where
                 branch.insert(partial.at(match_index), n);
 
                 if match_index == 0 {
-                    return Ok(Node::Branch(Rc::new(RefCell::new(branch))));
+                    return Ok(Node::Branch(Arc::new(RwLock::new(branch))));
                 }
 
                 // if include a common prefix
                 Ok(Node::from_extension(
                     partial.slice(0, match_index),
-                    Node::Branch(Rc::new(RefCell::new(branch))),
+                    Node::Branch(Arc::new(RwLock::new(branch))),
                 ))
             }
             Node::Branch(branch) => {
-                let mut borrow_branch = branch.borrow_mut();
+                let mut borrow_branch = branch.write().unwrap();
 
                 if partial.at(0) == 0x10 {
                     borrow_branch.value = Some(value);
@@ -525,7 +530,7 @@ where
                 Ok(Node::Branch(branch.clone()))
             }
             Node::Extension(ext) => {
-                let mut borrow_ext = ext.borrow_mut();
+                let mut borrow_ext = ext.write().unwrap();
 
                 let prefix = &borrow_ext.prefix;
                 let sub_node = borrow_ext.node.clone();
@@ -544,7 +549,7 @@ where
                             Node::from_extension(prefix.offset(1), sub_node)
                         },
                     );
-                    let node = Node::Branch(Rc::new(RefCell::new(branch)));
+                    let node = Node::Branch(Arc::new(RwLock::new(branch)));
 
                     return self.insert_at(node, path, path_index, value);
                 }
@@ -562,10 +567,8 @@ where
                 Ok(Node::Extension(ext.clone()))
             }
             Node::Hash(hash_node) => {
-                let node_hash = hash_node.borrow().hash;
-                self.passing_keys
-                    .borrow_mut()
-                    .insert(node_hash.as_bytes().to_vec());
+                let node_hash = hash_node.read().unwrap().hash;
+                self.passing_keys.insert(node_hash.as_bytes().to_vec());
                 let node =
                     self.recover_from_db(node_hash)?
                         .ok_or_else(|| TrieError::MissingTrieNode {
@@ -580,7 +583,7 @@ where
     }
 
     fn delete_at(
-        &self,
+        &mut self,
         old_node: &Node,
         path: &Nibbles,
         path_index: usize,
@@ -589,7 +592,7 @@ where
         let (new_node, deleted) = match old_node {
             Node::Empty => Ok((Node::Empty, false)),
             Node::Leaf(leaf) => {
-                let borrow_leaf = leaf.borrow();
+                let borrow_leaf = leaf.read().unwrap();
 
                 if &borrow_leaf.key == partial {
                     return Ok((Node::Empty, true));
@@ -597,7 +600,7 @@ where
                 Ok((Node::Leaf(leaf.clone()), false))
             }
             Node::Branch(branch) => {
-                let mut borrow_branch = branch.borrow_mut();
+                let mut borrow_branch = branch.write().unwrap();
 
                 if partial.at(0) == 0x10 {
                     borrow_branch.value = None;
@@ -615,7 +618,7 @@ where
                 Ok((Node::Branch(branch.clone()), deleted))
             }
             Node::Extension(ext) => {
-                let mut borrow_ext = ext.borrow_mut();
+                let mut borrow_ext = ext.write().unwrap();
 
                 let prefix = &borrow_ext.prefix;
                 let match_len = partial.common_prefix(prefix);
@@ -634,10 +637,8 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let hash = hash_node.borrow().hash;
-                self.passing_keys
-                    .borrow_mut()
-                    .insert(hash.as_bytes().to_vec());
+                let hash = hash_node.read().unwrap().hash;
+                self.passing_keys.insert(hash.as_bytes().to_vec());
 
                 let node =
                     self.recover_from_db(hash)?
@@ -661,10 +662,10 @@ where
     // This refactors the trie after a node deletion, as necessary.
     // For example, if a deletion removes a child of a branch node, leaving only one child left, it
     // needs to be modified into an extension and maybe combined with its parent and/or child node.
-    fn degenerate(&self, n: Node) -> TrieResult<Node> {
+    fn degenerate(&mut self, n: Node) -> TrieResult<Node> {
         match n {
             Node::Branch(branch) => {
-                let borrow_branch = branch.borrow();
+                let borrow_branch = branch.read().unwrap();
 
                 let mut used_indexs = vec![];
                 for (index, node) in borrow_branch.children.iter().enumerate() {
@@ -691,29 +692,27 @@ where
                 }
             }
             Node::Extension(ext) => {
-                let borrow_ext = ext.borrow();
+                let borrow_ext = ext.read().unwrap();
 
                 let prefix = &borrow_ext.prefix;
                 match borrow_ext.node.clone() {
                     Node::Extension(sub_ext) => {
-                        let borrow_sub_ext = sub_ext.borrow();
+                        let borrow_sub_ext = sub_ext.read().unwrap();
 
                         let new_prefix = prefix.join(&borrow_sub_ext.prefix);
                         let new_n = Node::from_extension(new_prefix, borrow_sub_ext.node.clone());
                         self.degenerate(new_n)
                     }
                     Node::Leaf(leaf) => {
-                        let borrow_leaf = leaf.borrow();
+                        let borrow_leaf = leaf.read().unwrap();
 
                         let new_prefix = prefix.join(&borrow_leaf.key);
                         Ok(Node::from_leaf(new_prefix, borrow_leaf.value.clone()))
                     }
                     // try again after recovering node from the db.
                     Node::Hash(hash_node) => {
-                        let node_hash = hash_node.borrow().hash;
-                        self.passing_keys
-                            .borrow_mut()
-                            .insert(node_hash.as_bytes().to_vec());
+                        let node_hash = hash_node.read().unwrap().hash;
+                        self.passing_keys.insert(node_hash.as_bytes().to_vec());
 
                         let new_node =
                             self.recover_from_db(node_hash)?
@@ -750,7 +749,7 @@ where
         match source_node {
             Node::Empty | Node::Leaf(_) => Ok(vec![]),
             Node::Branch(branch) => {
-                let borrow_branch = branch.borrow();
+                let borrow_branch = branch.read().unwrap();
 
                 if partial.is_empty() || partial.at(0) == 16 {
                     Ok(vec![])
@@ -760,7 +759,7 @@ where
                 }
             }
             Node::Extension(ext) => {
-                let borrow_ext = ext.borrow();
+                let borrow_ext = ext.read().unwrap();
 
                 let prefix = &borrow_ext.prefix;
                 let match_len = partial.common_prefix(prefix);
@@ -772,7 +771,7 @@ where
                 }
             }
             Node::Hash(hash_node) => {
-                let node_hash = hash_node.borrow().hash;
+                let node_hash = hash_node.read().unwrap().hash;
                 let n = self
                     .recover_from_db(node_hash)?
                     .ok_or(TrieError::MissingTrieNode {
@@ -789,20 +788,18 @@ where
     }
 
     fn commit(&mut self) -> TrieResult<H256> {
-        let root_hash = match self.encode_node(&self.root) {
+        let root_hash = match self.write_node(&self.root.clone()) {
             EncodedNode::Hash(hash) => hash,
             EncodedNode::Inline(encoded) => {
                 let hash = keccak(&encoded);
-                self.cache
-                    .borrow_mut()
-                    .insert(hash.as_bytes().to_vec(), encoded);
+                self.cache.insert(hash.as_bytes().to_vec(), encoded);
                 hash
             }
         };
 
-        let mut keys = Vec::with_capacity(self.cache.borrow().len());
-        let mut values = Vec::with_capacity(self.cache.borrow().len());
-        for (k, v) in self.cache.borrow_mut().drain() {
+        let mut keys = Vec::with_capacity(self.cache.len());
+        let mut values = Vec::with_capacity(self.cache.len());
+        for (k, v) in self.cache.drain() {
             keys.push(k.to_vec());
             values.push(v);
         }
@@ -813,9 +810,8 @@ where
 
         let removed_keys: Vec<Vec<u8>> = self
             .passing_keys
-            .borrow()
             .iter()
-            .filter(|h| !self.gen_keys.borrow().contains(&h.to_vec()))
+            .filter(|h| !self.gen_keys.contains(&h.to_vec()))
             .map(|h| h.to_vec())
             .collect();
 
@@ -824,18 +820,18 @@ where
             .map_err(|e| TrieError::DB(e.to_string()))?;
 
         self.root_hash = root_hash;
-        self.gen_keys.borrow_mut().clear();
-        self.passing_keys.borrow_mut().clear();
+        self.gen_keys.clear();
+        self.passing_keys.clear();
         self.root = self
             .recover_from_db(root_hash)?
             .expect("The root that was just created is missing");
         Ok(root_hash)
     }
 
-    fn encode_node(&self, to_encode: &Node) -> EncodedNode {
+    fn write_node(&mut self, to_encode: &Node) -> EncodedNode {
         // Returns the hash value directly to avoid double counting.
         if let Node::Hash(hash_node) = to_encode {
-            return EncodedNode::Hash(hash_node.borrow().hash);
+            return EncodedNode::Hash(hash_node.read().unwrap().hash);
         }
 
         let data = self.encode_raw(to_encode);
@@ -845,20 +841,18 @@ where
             EncodedNode::Inline(data)
         } else {
             let hash = keccak(&data);
-            self.cache
-                .borrow_mut()
-                .insert(hash.as_bytes().to_vec(), data);
+            self.cache.insert(hash.as_bytes().to_vec(), data);
 
-            self.gen_keys.borrow_mut().insert(hash.as_bytes().to_vec());
+            self.gen_keys.insert(hash.as_bytes().to_vec());
             EncodedNode::Hash(hash)
         }
     }
 
-    fn encode_raw(&self, node: &Node) -> Vec<u8> {
+    fn encode_raw(&mut self, node: &Node) -> Vec<u8> {
         match node {
             Node::Empty => rlp::NULL_RLP.to_vec(),
             Node::Leaf(leaf) => {
-                let borrow_leaf = leaf.borrow();
+                let borrow_leaf = leaf.read().unwrap();
 
                 let mut stream = RlpStream::new_list(2);
                 stream.append(&borrow_leaf.key.encode_compact());
@@ -866,12 +860,12 @@ where
                 stream.out()
             }
             Node::Branch(branch) => {
-                let borrow_branch = branch.borrow();
+                let borrow_branch = branch.read().unwrap();
 
                 let mut stream = RlpStream::new_list(17);
                 for i in 0..16 {
                     let n = &borrow_branch.children[i];
-                    match self.encode_node(n) {
+                    match self.write_node(n) {
                         EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
                         EncodedNode::Inline(data) => stream.append_raw(&data, 1),
                     };
@@ -884,11 +878,11 @@ where
                 stream.out()
             }
             Node::Extension(ext) => {
-                let borrow_ext = ext.borrow();
+                let borrow_ext = ext.read().unwrap();
 
                 let mut stream = RlpStream::new_list(2);
                 stream.append(&borrow_ext.prefix.encode_compact());
-                match self.encode_node(&borrow_ext.node) {
+                match self.write_node(&borrow_ext.node) {
                     EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
                     EncodedNode::Inline(data) => stream.append_raw(&data, 1),
                 };
@@ -1100,7 +1094,7 @@ mod tests {
     #[test]
     /// When a database entry is missing, get_proof returns a MissingTrieNode error
     fn test_trie_get_proof_corrupt() {
-        let (trie, actual_root_hash, deleted_node_hash) = corrupt_trie();
+        let (mut trie, actual_root_hash, deleted_node_hash) = corrupt_trie();
 
         let result = trie.get_proof(b"test2-key");
 
