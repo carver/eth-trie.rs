@@ -989,9 +989,9 @@ mod tests {
         // Manually corrupt the database by removing a trie node
         // This is the hash for the leaf node for test2-key
         let node_hash_to_delete = b"\xcb\x15v%j\r\x1e\te_TvQ\x8d\x93\x80\xd1\xa2\xd1\xde\xfb\xa5\xc3hJ\x8c\x9d\xb93I-\xbd";
-        assert!(corruptor_db.contains(node_hash_to_delete).unwrap());
+        assert_ne!(corruptor_db.get(node_hash_to_delete).unwrap(), None);
         corruptor_db.remove(node_hash_to_delete).unwrap();
-        assert!(!corruptor_db.contains(node_hash_to_delete).unwrap());
+        assert_eq!(corruptor_db.get(node_hash_to_delete).unwrap(), None);
 
         return (
             trie,
