@@ -257,6 +257,19 @@ where
             None => Err(TrieError::InvalidStateRoot),
         }
     }
+
+    pub fn at_root(&self, root_hash: H256) -> Self {
+        Self {
+            root: Node::from_hash(root_hash),
+            root_hash,
+
+            cache: HashMap::new(),
+            passing_keys: HashSet::new(),
+            gen_keys: HashSet::new(),
+
+            db: self.db.clone(),
+        }
+    }
 }
 
 impl<D> Trie<D> for EthTrie<D>
@@ -1383,5 +1396,48 @@ mod tests {
         trie.iter()
             .for_each(|(k, v)| assert_eq!(kv.remove(&k).unwrap(), v));
         assert!(kv.is_empty());
+    }
+
+    #[test]
+    fn test_small_trie_at_root() {
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = EthTrie::new(memdb.clone());
+        trie.insert(b"key", b"val").unwrap();
+        let new_root_hash = trie.commit().unwrap();
+
+        let empty_trie = EthTrie::new(memdb.clone());
+        // Can't find key in new trie at empty root
+        assert_eq!(empty_trie.get(b"key").unwrap(), None);
+
+        let trie_view = empty_trie.at_root(new_root_hash);
+        assert_eq!(&trie_view.get(b"key").unwrap().unwrap(), b"val");
+
+        // Previous trie was not modified
+        assert_eq!(empty_trie.get(b"key").unwrap(), None);
+    }
+
+    #[test]
+    fn test_large_trie_at_root() {
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = EthTrie::new(memdb.clone());
+        trie.insert(
+            b"pretty-long-key",
+            b"even-longer-val-to-go-more-than-32-bytes",
+        )
+        .unwrap();
+        let new_root_hash = trie.commit().unwrap();
+
+        let empty_trie = EthTrie::new(memdb.clone());
+        // Can't find key in new trie at empty root
+        assert_eq!(empty_trie.get(b"pretty-long-key").unwrap(), None);
+
+        let trie_view = empty_trie.at_root(new_root_hash);
+        assert_eq!(
+            &trie_view.get(b"pretty-long-key").unwrap().unwrap(),
+            b"even-longer-val-to-go-more-than-32-bytes"
+        );
+
+        // Previous trie was not modified
+        assert_eq!(empty_trie.get(b"pretty-long-key").unwrap(), None);
     }
 }
