@@ -11,7 +11,6 @@ pub enum TrieError {
     DB(String),
     Decoder(DecoderError),
     InvalidData,
-    InvalidStateRoot,
     InvalidProof,
     MissingTrieNode {
         node_hash: H256,
@@ -29,7 +28,6 @@ impl fmt::Display for TrieError {
             TrieError::DB(ref err) => format!("trie error: {:?}", err),
             TrieError::Decoder(ref err) => format!("trie error: {:?}", err),
             TrieError::InvalidData => "trie error: invalid data".to_owned(),
-            TrieError::InvalidStateRoot => "trie error: invalid state root".to_owned(),
             TrieError::InvalidProof => "trie error: invalid proof".to_owned(),
             TrieError::MissingTrieNode { .. } => "trie error: missing node".to_owned(),
         };
