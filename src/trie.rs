@@ -930,7 +930,6 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
-    use ethereum_types;
     use keccak_hash::{keccak, H256};
 
     use super::{EthTrie, Trie};
@@ -982,11 +981,11 @@ mod tests {
         corruptor_db.remove(node_hash_to_delete).unwrap();
         assert_eq!(corruptor_db.get(node_hash_to_delete).unwrap(), None);
 
-        return (
+        (
             trie,
             actual_root_hash,
             H256::from_slice(node_hash_to_delete),
-        );
+        )
     }
 
     #[test]
@@ -1255,7 +1254,7 @@ mod tests {
             trie1.root_hash().unwrap();
             let root = trie1.root_hash().unwrap();
             let mut trie2 = trie1.at_root(root);
-            trie2.remove(&k1.as_bytes()).unwrap();
+            trie2.remove(k1.as_bytes()).unwrap();
             trie2.root_hash().unwrap()
         };
 
@@ -1326,7 +1325,7 @@ mod tests {
             let mut trie = EthTrie::new(memdb.clone());
             let mut kv = kv.clone();
             kv.iter().for_each(|(k, v)| {
-                trie.insert(&k, &v).unwrap();
+                trie.insert(k, v).unwrap();
             });
             root1 = trie.root_hash().unwrap();
 
@@ -1346,7 +1345,7 @@ mod tests {
             kv2.insert(b"test16".to_vec(), b"test16".to_vec());
             kv2.insert(b"test2".to_vec(), b"test17".to_vec());
             kv2.iter().for_each(|(k, v)| {
-                trie.insert(&k, &v).unwrap();
+                trie.insert(k, v).unwrap();
             });
 
             trie.root_hash().unwrap();
@@ -1357,7 +1356,7 @@ mod tests {
             kv_delete.insert(b"test14".to_vec());
 
             kv_delete.iter().for_each(|k| {
-                trie.remove(&k).unwrap();
+                trie.remove(k).unwrap();
             });
 
             kv2.retain(|k, _| !kv_delete.contains(k));

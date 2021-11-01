@@ -14,7 +14,7 @@ mod trie_tests {
             trie.insert(k, v).unwrap();
         }
         let root_hash = trie.root_hash().unwrap();
-        let rs = format!("0x{}", hex::encode(root_hash.clone()));
+        let rs = format!("0x{}", hex::encode(root_hash));
         assert_eq!(rs.as_str(), hash);
 
         let mut trie = trie.at_root(root_hash);
@@ -575,7 +575,7 @@ mod trie_tests {
                 .collect::<Vec<_>>(),
             expected
         );
-        let value = trie.verify_proof(root.clone(), b"doe", proof).unwrap();
+        let value = trie.verify_proof(root, b"doe", proof).unwrap();
         assert_eq!(value, Some(b"reindeer".to_vec()));
 
         // proof of key not exist
@@ -593,17 +593,17 @@ mod trie_tests {
                 .collect::<Vec<_>>(),
             expected
         );
-        let value = trie.verify_proof(root.clone(), b"dogg", proof).unwrap();
+        let value = trie.verify_proof(root, b"dogg", proof).unwrap();
         assert_eq!(value, None);
 
         // empty proof
         let proof = vec![];
-        let value = trie.verify_proof(root.clone(), b"doe", proof);
+        let value = trie.verify_proof(root, b"doe", proof);
         assert_eq!(value.is_err(), true);
 
         // bad proof
         let proof = vec![b"aaa".to_vec(), b"ccc".to_vec()];
-        let value = trie.verify_proof(root.clone(), b"doe", proof);
+        let value = trie.verify_proof(root, b"doe", proof);
         assert_eq!(value.is_err(), true);
     }
 
@@ -626,7 +626,7 @@ mod trie_tests {
         let root = trie.root_hash().unwrap();
         for k in keys.into_iter() {
             let proof = trie.get_proof(&k).unwrap();
-            let value = trie.verify_proof(root.clone(), &k, proof).unwrap().unwrap();
+            let value = trie.verify_proof(root, &k, proof).unwrap().unwrap();
             assert_eq!(value, k);
         }
     }
@@ -648,17 +648,13 @@ mod trie_tests {
         let root = trie.root_hash().unwrap();
         let proof = trie.get_proof(b"k").unwrap();
         assert_eq!(proof.len(), 1);
-        let value = trie
-            .verify_proof(root.clone(), b"k", proof.clone())
-            .unwrap();
+        let value = trie.verify_proof(root, b"k", proof.clone()).unwrap();
         assert_eq!(value, Some(b"v".to_vec()));
 
         // remove key does not affect the verify process
         trie.remove(b"k").unwrap();
         let _root = trie.root_hash().unwrap();
-        let value = trie
-            .verify_proof(root.clone(), b"k", proof.clone())
-            .unwrap();
+        let value = trie.verify_proof(root, b"k", proof).unwrap();
         assert_eq!(value, Some(b"v".to_vec()));
     }
 }
