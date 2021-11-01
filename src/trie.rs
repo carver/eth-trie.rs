@@ -1128,8 +1128,8 @@ mod tests {
         let memdb = Arc::new(MemoryDB::new(true));
         let mut trie = EthTrie::new(memdb);
         trie.insert(b"test", b"test").unwrap();
-        assert_eq!(true, trie.contains(b"test").unwrap());
-        assert_eq!(false, trie.contains(b"test2").unwrap());
+        assert!(trie.contains(b"test").unwrap());
+        assert!(!trie.contains(b"test2").unwrap());
     }
 
     #[test]
@@ -1138,7 +1138,7 @@ mod tests {
         let mut trie = EthTrie::new(memdb);
         trie.insert(b"test", b"test").unwrap();
         let removed = trie.remove(b"test").unwrap();
-        assert_eq!(true, removed)
+        assert!(removed)
     }
 
     #[test]
@@ -1152,7 +1152,7 @@ mod tests {
             trie.insert(val, val).unwrap();
 
             let removed = trie.remove(val).unwrap();
-            assert_eq!(true, removed);
+            assert!(removed);
         }
     }
 
@@ -1216,11 +1216,11 @@ mod tests {
 
         let mut trie = EthTrie::new(memdb.clone()).at_root(root);
         let removed = trie.remove(b"test44").unwrap();
-        assert_eq!(true, removed);
+        assert!(removed);
         let removed = trie.remove(b"test33").unwrap();
-        assert_eq!(true, removed);
+        assert!(removed);
         let removed = trie.remove(b"test23").unwrap();
-        assert_eq!(true, removed);
+        assert!(removed);
     }
 
     #[test]
