@@ -234,27 +234,16 @@ where
         }
     }
 
-    pub fn from(db: Arc<D>, root: H256) -> TrieResult<Self> {
-        match db
-            .get(root.as_bytes())
-            .map_err(|e| TrieError::DB(e.to_string()))?
-        {
-            Some(data) => {
-                let mut trie = Self {
-                    root: Node::Empty,
-                    root_hash: root,
+    pub fn at_root(&self, root_hash: H256) -> Self {
+        Self {
+            root: Node::from_hash(root_hash),
+            root_hash,
 
-                    cache: HashMap::new(),
-                    passing_keys: HashSet::new(),
-                    gen_keys: HashSet::new(),
+            cache: HashMap::new(),
+            passing_keys: HashSet::new(),
+            gen_keys: HashSet::new(),
 
-                    db,
-                };
-
-                trie.root = trie.decode_node(&data)?;
-                Ok(trie)
-            }
-            None => Err(TrieError::InvalidStateRoot),
+            db: self.db.clone(),
         }
     }
 }
@@ -396,15 +385,15 @@ where
         key: &[u8],
         proof: Vec<Vec<u8>>,
     ) -> TrieResult<Option<Vec<u8>>> {
-        let memdb = Arc::new(MemoryDB::new(true));
+        let proof_db = Arc::new(MemoryDB::new(true));
         for node_encoded in proof.into_iter() {
             let hash = keccak(&node_encoded);
 
             if root_hash.eq(&hash) || node_encoded.len() >= HASHED_LENGTH {
-                memdb.insert(hash.as_bytes(), node_encoded).unwrap();
+                proof_db.insert(hash.as_bytes(), node_encoded).unwrap();
             }
         }
-        let trie = EthTrie::from(memdb, root_hash).or(Err(TrieError::InvalidProof))?;
+        let trie = EthTrie::new(proof_db).at_root(root_hash);
         trie.get(key).or(Err(TrieError::InvalidProof))
     }
 }
@@ -1169,10 +1158,10 @@ mod tests {
     }
 
     #[test]
-    fn test_trie_from_root() {
+    fn test_trie_at_root_six_keys() {
         let memdb = Arc::new(MemoryDB::new(true));
         let root = {
-            let mut trie = EthTrie::new(Arc::clone(&memdb));
+            let mut trie = EthTrie::new(memdb.clone());
             trie.insert(b"test", b"test").unwrap();
             trie.insert(b"test1", b"test").unwrap();
             trie.insert(b"test2", b"test").unwrap();
@@ -1182,7 +1171,7 @@ mod tests {
             trie.root_hash().unwrap()
         };
 
-        let mut trie = EthTrie::from(Arc::clone(&memdb), root).unwrap();
+        let mut trie = EthTrie::new(memdb.clone()).at_root(root);
         let v1 = trie.get(b"test33").unwrap();
         assert_eq!(Some(b"test".to_vec()), v1);
         let v2 = trie.get(b"test44").unwrap();
@@ -1192,7 +1181,7 @@ mod tests {
     }
 
     #[test]
-    fn test_trie_from_root_and_insert() {
+    fn test_trie_at_root_and_insert() {
         let memdb = Arc::new(MemoryDB::new(true));
         let root = {
             let mut trie = EthTrie::new(Arc::clone(&memdb));
@@ -1205,7 +1194,7 @@ mod tests {
             trie.root_hash().unwrap()
         };
 
-        let mut trie = EthTrie::from(Arc::clone(&memdb), root).unwrap();
+        let mut trie = EthTrie::new(memdb.clone()).at_root(root);
         trie.insert(b"test55", b"test55").unwrap();
         trie.root_hash().unwrap();
         let v = trie.get(b"test55").unwrap();
@@ -1213,7 +1202,7 @@ mod tests {
     }
 
     #[test]
-    fn test_trie_from_root_and_delete() {
+    fn test_trie_at_root_and_delete() {
         let memdb = Arc::new(MemoryDB::new(true));
         let root = {
             let mut trie = EthTrie::new(Arc::clone(&memdb));
@@ -1226,7 +1215,7 @@ mod tests {
             trie.root_hash().unwrap()
         };
 
-        let mut trie = EthTrie::from(Arc::clone(&memdb), root).unwrap();
+        let mut trie = EthTrie::new(memdb.clone()).at_root(root);
         let removed = trie.remove(b"test44").unwrap();
         assert_eq!(true, removed);
         let removed = trie.remove(b"test33").unwrap();
@@ -1265,7 +1254,7 @@ mod tests {
             trie1.insert(k1.as_bytes(), v.as_bytes()).unwrap();
             trie1.root_hash().unwrap();
             let root = trie1.root_hash().unwrap();
-            let mut trie2 = EthTrie::from(Arc::clone(&memdb), root).unwrap();
+            let mut trie2 = trie1.at_root(root);
             trie2.remove(&k1.as_bytes()).unwrap();
             trie2.root_hash().unwrap()
         };
@@ -1379,9 +1368,52 @@ mod tests {
             assert!(kv2.is_empty());
         }
 
-        let trie = EthTrie::from(memdb, root1).unwrap();
+        let trie = EthTrie::new(memdb).at_root(root1);
         trie.iter()
             .for_each(|(k, v)| assert_eq!(kv.remove(&k).unwrap(), v));
         assert!(kv.is_empty());
+    }
+
+    #[test]
+    fn test_small_trie_at_root() {
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = EthTrie::new(memdb.clone());
+        trie.insert(b"key", b"val").unwrap();
+        let new_root_hash = trie.commit().unwrap();
+
+        let empty_trie = EthTrie::new(memdb.clone());
+        // Can't find key in new trie at empty root
+        assert_eq!(empty_trie.get(b"key").unwrap(), None);
+
+        let trie_view = empty_trie.at_root(new_root_hash);
+        assert_eq!(&trie_view.get(b"key").unwrap().unwrap(), b"val");
+
+        // Previous trie was not modified
+        assert_eq!(empty_trie.get(b"key").unwrap(), None);
+    }
+
+    #[test]
+    fn test_large_trie_at_root() {
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = EthTrie::new(memdb.clone());
+        trie.insert(
+            b"pretty-long-key",
+            b"even-longer-val-to-go-more-than-32-bytes",
+        )
+        .unwrap();
+        let new_root_hash = trie.commit().unwrap();
+
+        let empty_trie = EthTrie::new(memdb.clone());
+        // Can't find key in new trie at empty root
+        assert_eq!(empty_trie.get(b"pretty-long-key").unwrap(), None);
+
+        let trie_view = empty_trie.at_root(new_root_hash);
+        assert_eq!(
+            &trie_view.get(b"pretty-long-key").unwrap().unwrap(),
+            b"even-longer-val-to-go-more-than-32-bytes"
+        );
+
+        // Previous trie was not modified
+        assert_eq!(empty_trie.get(b"pretty-long-key").unwrap(), None);
     }
 }

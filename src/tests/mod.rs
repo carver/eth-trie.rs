@@ -16,7 +16,8 @@ mod trie_tests {
         let root_hash = trie.root_hash().unwrap();
         let rs = format!("0x{}", hex::encode(root_hash.clone()));
         assert_eq!(rs.as_str(), hash);
-        let mut trie = EthTrie::from(Arc::clone(&memdb), root_hash).unwrap();
+
+        let mut trie = trie.at_root(root_hash);
         let r2 = trie.root_hash().unwrap();
         let rs2 = format!("0x{}", hex::encode(r2));
         assert_eq!(rs2.as_str(), hash);
