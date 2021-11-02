@@ -1170,7 +1170,7 @@ mod tests {
             trie.root_hash().unwrap()
         };
 
-        let mut trie = EthTrie::new(memdb.clone()).at_root(root);
+        let mut trie = EthTrie::new(memdb).at_root(root);
         let v1 = trie.get(b"test33").unwrap();
         assert_eq!(Some(b"test".to_vec()), v1);
         let v2 = trie.get(b"test44").unwrap();
@@ -1193,7 +1193,7 @@ mod tests {
             trie.root_hash().unwrap()
         };
 
-        let mut trie = EthTrie::new(memdb.clone()).at_root(root);
+        let mut trie = EthTrie::new(memdb).at_root(root);
         trie.insert(b"test55", b"test55").unwrap();
         trie.root_hash().unwrap();
         let v = trie.get(b"test55").unwrap();
@@ -1214,7 +1214,7 @@ mod tests {
             trie.root_hash().unwrap()
         };
 
-        let mut trie = EthTrie::new(memdb.clone()).at_root(root);
+        let mut trie = EthTrie::new(memdb).at_root(root);
         let removed = trie.remove(b"test44").unwrap();
         assert!(removed);
         let removed = trie.remove(b"test33").unwrap();
@@ -1380,7 +1380,7 @@ mod tests {
         trie.insert(b"key", b"val").unwrap();
         let new_root_hash = trie.commit().unwrap();
 
-        let empty_trie = EthTrie::new(memdb.clone());
+        let empty_trie = EthTrie::new(memdb);
         // Can't find key in new trie at empty root
         assert_eq!(empty_trie.get(b"key").unwrap(), None);
 
@@ -1402,7 +1402,7 @@ mod tests {
         .unwrap();
         let new_root_hash = trie.commit().unwrap();
 
-        let empty_trie = EthTrie::new(memdb.clone());
+        let empty_trie = EthTrie::new(memdb);
         // Can't find key in new trie at empty root
         assert_eq!(empty_trie.get(b"pretty-long-key").unwrap(), None);
 
