@@ -827,7 +827,7 @@ where
                 let mut stream = RlpStream::new_list(2);
                 stream.append(&leaf.key.encode_compact());
                 stream.append(&leaf.value);
-                stream.out()
+                stream.out().to_vec()
             }
             Node::Branch(branch) => {
                 let borrow_branch = branch.read().unwrap();
@@ -845,7 +845,7 @@ where
                     Some(v) => stream.append(v),
                     None => stream.append_empty_data(),
                 };
-                stream.out()
+                stream.out().to_vec()
             }
             Node::Extension(ext) => {
                 let borrow_ext = ext.read().unwrap();
@@ -856,7 +856,7 @@ where
                     EncodedNode::Hash(hash) => stream.append(&hash.as_bytes()),
                     EncodedNode::Inline(data) => stream.append_raw(&data, 1),
                 };
-                stream.out()
+                stream.out().to_vec()
             }
             Node::Hash(_hash) => unreachable!(),
         }
@@ -1114,7 +1114,7 @@ mod tests {
         let mut trie = EthTrie::new(memdb);
 
         for _ in 0..1000 {
-            let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
+            let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).map(char::from).collect();
             let val = rand_str.as_bytes();
             trie.insert(val, val).unwrap();
 
@@ -1147,7 +1147,7 @@ mod tests {
         let mut trie = EthTrie::new(memdb);
 
         for _ in 0..1000 {
-            let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
+            let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).map(char::from).collect();
             let val = rand_str.as_bytes();
             trie.insert(val, val).unwrap();
 
@@ -1225,9 +1225,9 @@ mod tests {
 
     #[test]
     fn test_multiple_trie_roots() {
-        let k0: ethereum_types::H256 = 0.into();
-        let k1: ethereum_types::H256 = 1.into();
-        let v: ethereum_types::H256 = 0x1234.into();
+        let k0: ethereum_types::H256 = ethereum_types::H256::zero();
+        let k1: ethereum_types::H256 = ethereum_types::H256::random();
+        let v: ethereum_types::H256 = ethereum_types::H256::random();
 
         let root1 = {
             let memdb = Arc::new(MemoryDB::new(true));
@@ -1270,7 +1270,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let mut keys = vec![];
         for _ in 0..100 {
-            let random_bytes: Vec<u8> = (0..rng.gen_range(2, 30))
+            let random_bytes: Vec<u8> = (0..rng.gen_range(2..30))
                 .map(|_| rand::random::<u8>())
                 .collect();
             trie.insert(&random_bytes, &random_bytes).unwrap();
