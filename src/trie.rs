@@ -1114,7 +1114,11 @@ mod tests {
         let mut trie = EthTrie::new(memdb);
 
         for _ in 0..1000 {
-            let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).map(char::from).collect();
+            let rand_str: String = thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(30)
+                .map(char::from)
+                .collect();
             let val = rand_str.as_bytes();
             trie.insert(val, val).unwrap();
 
@@ -1147,7 +1151,11 @@ mod tests {
         let mut trie = EthTrie::new(memdb);
 
         for _ in 0..1000 {
-            let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).map(char::from).collect();
+            let rand_str: String = thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(30)
+                .map(char::from)
+                .collect();
             let val = rand_str.as_bytes();
             trie.insert(val, val).unwrap();
 
