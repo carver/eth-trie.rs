@@ -1,6 +1,6 @@
 [package]
 name = "eth_trie"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Jason Carver <ut96caarrs@snkmail.com>"]
 description = "Ethereum-compatible Merkle-Patricia Trie."
 license = "Apache-2.0"
