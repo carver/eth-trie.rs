@@ -1,8 +1,8 @@
-use keccak_hash::KECCAK_NULL_RLP;
 use std::sync::{Arc, RwLock};
 
+use ethereum_types::H256;
 use hashbrown::{HashMap, HashSet};
-use keccak_hash::{keccak, H256};
+use keccak_hash::{keccak, KECCAK_NULL_RLP};
 use log::warn;
 use rlp::{Prototype, Rlp, RlpStream};
 
@@ -225,7 +225,7 @@ where
     pub fn new(db: Arc<D>) -> Self {
         Self {
             root: Node::Empty,
-            root_hash: KECCAK_NULL_RLP,
+            root_hash: KECCAK_NULL_RLP.as_fixed_bytes().into(),
 
             cache: HashMap::new(),
             passing_keys: HashSet::new(),
@@ -388,7 +388,7 @@ where
     ) -> TrieResult<Option<Vec<u8>>> {
         let proof_db = Arc::new(MemoryDB::new(true));
         for node_encoded in proof.into_iter() {
-            let hash = keccak(&node_encoded);
+            let hash: H256 = keccak(&node_encoded).as_fixed_bytes().into();
 
             if root_hash.eq(&hash) || node_encoded.len() >= HASHED_LENGTH {
                 proof_db.insert(hash.as_bytes(), node_encoded).unwrap();
@@ -764,7 +764,7 @@ where
         let root_hash = match self.write_node(&self.root.clone()) {
             EncodedNode::Hash(hash) => hash,
             EncodedNode::Inline(encoded) => {
-                let hash = keccak(&encoded);
+                let hash: H256 = keccak(&encoded).as_fixed_bytes().into();
                 self.cache.insert(hash.as_bytes().to_vec(), encoded);
                 hash
             }
@@ -813,7 +813,7 @@ where
         if data.len() < HASHED_LENGTH {
             EncodedNode::Inline(data)
         } else {
-            let hash = keccak(&data);
+            let hash: H256 = keccak(&data).as_fixed_bytes().into();
             self.cache.insert(hash.as_bytes().to_vec(), data);
 
             self.gen_keys.insert(hash.as_bytes().to_vec());
@@ -931,7 +931,8 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
-    use keccak_hash::{H256, KECCAK_NULL_RLP};
+    use ethereum_types::H256;
+    use keccak_hash::KECCAK_NULL_RLP;
 
     use super::{EthTrie, Trie};
     use crate::db::{MemoryDB, DB};

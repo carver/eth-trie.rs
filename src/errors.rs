@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
-use keccak_hash::H256;
+use ethereum_types::H256;
 use rlp::DecoderError;
 
 use crate::nibbles::Nibbles;

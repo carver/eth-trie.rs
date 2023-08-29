@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use keccak_hash::H256;
+use ethereum_types::H256;
 
 use crate::nibbles::Nibbles;
 
