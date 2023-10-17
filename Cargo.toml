@@ -1,6 +1,6 @@
 [package]
 name = "eth_trie"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Jason Carver <ut96caarrs@snkmail.com>"]
 description = "Ethereum-compatible Merkle-Patricia Trie."
 license = "Apache-2.0"
@@ -12,7 +12,7 @@ homepage = "https://github.com/carver/eth-trie.rs"
 documentation = "https://docs.rs/eth_trie"
 
 [dependencies]
-ethereum-types = "0.12.1"
+ethereum-types = "0.14.1"
 hashbrown = "0.14.0"
 keccak-hash = "0.10.0"
 log = "0.4.16"
