@@ -8,7 +8,7 @@ mod trie;
 
 pub use db::{MemoryDB, DB};
 pub use errors::{MemDBError, TrieError};
-pub use trie::{EthTrie, Trie};
+pub use trie::{EthTrie, Trie, decode_node};
 
 #[doc = include_str!("../README.md")]
 #[cfg(doctest)]

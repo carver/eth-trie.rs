@@ -864,50 +864,7 @@ where
     }
 
     fn decode_node(data: &[u8]) -> TrieResult<Node> {
-        let r = Rlp::new(data);
-
-        match r.prototype()? {
-            Prototype::Data(0) => Ok(Node::Empty),
-            Prototype::List(2) => {
-                let key = r.at(0)?.data()?;
-                let key = Nibbles::from_compact(key);
-
-                if key.is_leaf() {
-                    Ok(Node::from_leaf(key, r.at(1)?.data()?.to_vec()))
-                } else {
-                    let n = Self::decode_node(r.at(1)?.as_raw())?;
-
-                    Ok(Node::from_extension(key, n))
-                }
-            }
-            Prototype::List(17) => {
-                let mut nodes = empty_children();
-                #[allow(clippy::needless_range_loop)]
-                for i in 0..nodes.len() {
-                    let rlp_data = r.at(i)?;
-                    let n = Self::decode_node(rlp_data.as_raw())?;
-                    nodes[i] = n;
-                }
-
-                // The last element is a value node.
-                let value_rlp = r.at(16)?;
-                let value = if value_rlp.is_empty() {
-                    None
-                } else {
-                    Some(value_rlp.data()?.to_vec())
-                };
-
-                Ok(Node::from_branch(nodes, value))
-            }
-            _ => {
-                if r.is_data() && r.size() == HASHED_LENGTH {
-                    let hash = H256::from_slice(r.data()?);
-                    Ok(Node::from_hash(hash))
-                } else {
-                    Err(TrieError::InvalidData)
-                }
-            }
-        }
+        decode_node(data)
     }
 
     fn recover_from_db(&self, key: H256) -> TrieResult<Option<Node>> {
@@ -920,6 +877,53 @@ where
             None => None,
         };
         Ok(node)
+    }
+}
+
+pub fn decode_node(data: &[u8]) -> TrieResult<Node> {
+    let r = Rlp::new(data);
+
+    match r.prototype()? {
+        Prototype::Data(0) => Ok(Node::Empty),
+        Prototype::List(2) => {
+            let key = r.at(0)?.data()?;
+            let key = Nibbles::from_compact(key);
+
+            if key.is_leaf() {
+                Ok(Node::from_leaf(key, r.at(1)?.data()?.to_vec()))
+            } else {
+                let n = decode_node(r.at(1)?.as_raw())?;
+
+                Ok(Node::from_extension(key, n))
+            }
+        }
+        Prototype::List(17) => {
+            let mut nodes = empty_children();
+            #[allow(clippy::needless_range_loop)]
+            for i in 0..nodes.len() {
+                let rlp_data = r.at(i)?;
+                let n = decode_node(rlp_data.as_raw())?;
+                nodes[i] = n;
+            }
+
+            // The last element is a value node.
+            let value_rlp = r.at(16)?;
+            let value = if value_rlp.is_empty() {
+                None
+            } else {
+                Some(value_rlp.data()?.to_vec())
+            };
+
+            Ok(Node::from_branch(nodes, value))
+        }
+        _ => {
+            if r.is_data() && r.size() == HASHED_LENGTH {
+                let hash = H256::from_slice(r.data()?);
+                Ok(Node::from_hash(hash))
+            } else {
+                Err(TrieError::InvalidData)
+            }
+        }
     }
 }
 
