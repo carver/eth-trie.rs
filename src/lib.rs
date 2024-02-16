@@ -1,5 +1,5 @@
 mod nibbles;
-mod node;
+pub mod node;
 mod tests;
 
 mod db;
