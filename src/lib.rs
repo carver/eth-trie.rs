@@ -1,4 +1,4 @@
-mod nibbles;
+pub mod nibbles;
 pub mod node;
 mod tests;
 
