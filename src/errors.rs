@@ -1,21 +1,21 @@
 use std::error::Error;
 use std::fmt;
 
-use ethereum_types::H256;
-use rlp::DecoderError;
+use alloy_primitives::B256;
+use alloy_rlp::Error as RlpError;
 
 use crate::nibbles::Nibbles;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TrieError {
     DB(String),
-    Decoder(DecoderError),
+    Decoder(RlpError),
     InvalidData,
     InvalidProof,
     MissingTrieNode {
-        node_hash: H256,
+        node_hash: B256,
         traversed: Option<Nibbles>,
-        root_hash: Option<H256>,
+        root_hash: Option<B256>,
         err_key: Option<Vec<u8>>,
     },
 }
@@ -35,8 +35,8 @@ impl fmt::Display for TrieError {
     }
 }
 
-impl From<DecoderError> for TrieError {
-    fn from(error: DecoderError) -> Self {
+impl From<RlpError> for TrieError {
+    fn from(error: RlpError) -> Self {
         TrieError::Decoder(error)
     }
 }

@@ -12,12 +12,12 @@ homepage = "https://github.com/carver/eth-trie.rs"
 documentation = "https://docs.rs/eth_trie"
 
 [dependencies]
-ethereum-types = "0.14.1"
+alloy-primitives = { version = "0.7.0", features = ["getrandom", "rlp"] }
+alloy-rlp = { version = "0.3.4", features = ["derive"] }
 hashbrown = "0.14.0"
 keccak-hash = "0.10.0"
 log = "0.4.16"
 parking_lot = "0.12"
-rlp = "0.5.1"
 
 [dev-dependencies]
 rand = "0.8.3"
