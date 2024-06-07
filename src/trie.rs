@@ -32,6 +32,10 @@ pub trait Trie<D: DB> {
     /// Returns the root hash of the trie.
     fn root_hash(&mut self) -> TrieResult<B256>;
 
+    /// Saves all the nodes in the db, clears the cache data, recalculates the root.
+    /// Returns the root hash of the trie and updated nodes from the cache.
+    fn root_hash_with_changed_nodes(&mut self) -> TrieResult<(B256, HashMap<Vec<u8>, Vec<u8>>)>;
+
     /// Prove constructs a merkle proof for key. The result contains all encoded nodes
     /// on the path to the value at key. The value itself is also included in the last
     /// node and can be retrieved by verifying the proof.
@@ -339,7 +343,13 @@ where
     /// Saves all the nodes in the db, clears the cache data, recalculates the root.
     /// Returns the root hash of the trie.
     fn root_hash(&mut self) -> TrieResult<B256> {
-        self.commit()
+        self.commit(false).map(|(root_hash, _)| root_hash)
+    }
+
+    /// Saves all the nodes in the db, clears the cache data, recalculates the root.
+    /// Returns the root hash of the trie and updated nodes from the cache.
+    fn root_hash_with_changed_nodes(&mut self) -> TrieResult<(B256, HashMap<Vec<u8>, Vec<u8>>)> {
+        self.commit(true)
     }
 
     /// Prove constructs a merkle proof for key. The result contains all encoded nodes
@@ -761,7 +771,10 @@ where
         }
     }
 
-    fn commit(&mut self) -> TrieResult<B256> {
+    fn commit(
+        &mut self,
+        return_changed_nodes: bool,
+    ) -> TrieResult<(B256, HashMap<Vec<u8>, Vec<u8>>)> {
         let root_hash = match self.write_node(&self.root.clone()) {
             EncodedNode::Hash(hash) => hash,
             EncodedNode::Inline(encoded) => {
@@ -770,6 +783,11 @@ where
                 hash
             }
         };
+
+        let mut changed_nodes = HashMap::new();
+        if return_changed_nodes {
+            changed_nodes = self.cache.clone();
+        }
 
         let mut keys = Vec::with_capacity(self.cache.len());
         let mut values = Vec::with_capacity(self.cache.len());
@@ -799,7 +817,7 @@ where
         self.root = self
             .recover_from_db(root_hash)?
             .expect("The root that was just created is missing");
-        Ok(root_hash)
+        Ok((root_hash, changed_nodes))
     }
 
     fn write_node(&mut self, to_encode: &Node) -> EncodedNode {
@@ -1446,7 +1464,7 @@ mod tests {
         let memdb = Arc::new(MemoryDB::new(true));
         let mut trie = EthTrie::new(memdb.clone());
         trie.insert(b"key", b"val").unwrap();
-        let new_root_hash = trie.commit().unwrap();
+        let new_root_hash = trie.root_hash().unwrap();
 
         let empty_trie = EthTrie::new(memdb);
         // Can't find key in new trie at empty root
@@ -1468,7 +1486,7 @@ mod tests {
             b"even-longer-val-to-go-more-than-32-bytes",
         )
         .unwrap();
-        let new_root_hash = trie.commit().unwrap();
+        let new_root_hash = trie.root_hash().unwrap();
 
         let empty_trie = EthTrie::new(memdb);
         // Can't find key in new trie at empty root
