@@ -15,6 +15,11 @@ use crate::node::{empty_children, BranchNode, Node};
 pub type TrieResult<T> = Result<T, TrieError>;
 const HASHED_LENGTH: usize = 32;
 
+pub struct RootWithTrieDiff {
+    pub root: B256,
+    pub trie_diff: HashMap<Vec<u8>, Vec<u8>>,
+}
+
 pub trait Trie<D: DB> {
     /// Returns the value for key stored in the trie.
     fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>>;
@@ -34,7 +39,7 @@ pub trait Trie<D: DB> {
 
     /// Saves all the nodes in the db, clears the cache data, recalculates the root.
     /// Returns the root hash of the trie and updated nodes from the cache.
-    fn root_hash_with_changed_nodes(&mut self) -> TrieResult<(B256, HashMap<Vec<u8>, Vec<u8>>)>;
+    fn root_hash_with_changed_nodes(&mut self) -> TrieResult<RootWithTrieDiff>;
 
     /// Prove constructs a merkle proof for key. The result contains all encoded nodes
     /// on the path to the value at key. The value itself is also included in the last
@@ -343,12 +348,13 @@ where
     /// Saves all the nodes in the db, clears the cache data, recalculates the root.
     /// Returns the root hash of the trie.
     fn root_hash(&mut self) -> TrieResult<B256> {
-        self.commit(false).map(|(root_hash, _)| root_hash)
+        self.commit(false)
+            .map(|root_with_trie_diff| root_with_trie_diff.root)
     }
 
     /// Saves all the nodes in the db, clears the cache data, recalculates the root.
     /// Returns the root hash of the trie and updated nodes from the cache.
-    fn root_hash_with_changed_nodes(&mut self) -> TrieResult<(B256, HashMap<Vec<u8>, Vec<u8>>)> {
+    fn root_hash_with_changed_nodes(&mut self) -> TrieResult<RootWithTrieDiff> {
         self.commit(true)
     }
 
@@ -771,10 +777,7 @@ where
         }
     }
 
-    fn commit(
-        &mut self,
-        return_changed_nodes: bool,
-    ) -> TrieResult<(B256, HashMap<Vec<u8>, Vec<u8>>)> {
+    fn commit(&mut self, return_changed_nodes: bool) -> TrieResult<RootWithTrieDiff> {
         let root_hash = match self.write_node(&self.root.clone()) {
             EncodedNode::Hash(hash) => hash,
             EncodedNode::Inline(encoded) => {
@@ -817,7 +820,10 @@ where
         self.root = self
             .recover_from_db(root_hash)?
             .expect("The root that was just created is missing");
-        Ok((root_hash, changed_nodes))
+        Ok(RootWithTrieDiff {
+            root: root_hash,
+            trie_diff: changed_nodes,
+        })
     }
 
     fn write_node(&mut self, to_encode: &Node) -> EncodedNode {
