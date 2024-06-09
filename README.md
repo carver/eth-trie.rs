@@ -38,7 +38,7 @@ fn main() -> Result<(), TrieError> {
     };
     assert_eq!(root.as_slice(), b"\x0ee/\xd2Y,\x8aS}\xcf|0\x85L\xb2\x87\xea\xabt\x0c\x16\xd9G\x0c\xa3\xe0S\xf4\x9b}\xe3g");
 
-    let mut trie = EthTrie::new(memdb).at_root(root);
+    let mut trie = EthTrie::from(memdb, root)?;
 
     let exists = trie.contains(key)?;
     assert_eq!(exists, true);

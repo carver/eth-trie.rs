@@ -17,7 +17,7 @@ const HASHED_LENGTH: usize = 32;
 
 pub struct RootWithTrieDiff {
     pub root: B256,
-    pub trie_diff: HashMap<Vec<u8>, Vec<u8>>,
+    pub trie_diff: HashMap<B256, Vec<u8>>,
 }
 
 pub trait Trie<D: DB> {
@@ -71,9 +71,9 @@ where
     db: Arc<D>,
 
     // The batch of pending new nodes to write
-    cache: HashMap<Vec<u8>, Vec<u8>>,
-    passing_keys: HashSet<Vec<u8>>,
-    gen_keys: HashSet<Vec<u8>>,
+    cache: HashMap<B256, Vec<u8>>,
+    passing_keys: HashSet<B256>,
+    gen_keys: HashSet<B256>,
 }
 
 enum EncodedNode {
@@ -245,16 +245,27 @@ where
         }
     }
 
-    pub fn at_root(&self, root_hash: B256) -> Self {
-        Self {
-            root: Node::from_hash(root_hash),
-            root_hash,
+    pub fn from(db: Arc<D>, root: B256) -> TrieResult<Self> {
+        match db
+            .get(root.as_slice())
+            .map_err(|e| TrieError::DB(e.to_string()))?
+        {
+            Some(data) => {
+                let mut trie = Self {
+                    root: Node::Empty,
+                    root_hash: root,
 
-            cache: HashMap::new(),
-            passing_keys: HashSet::new(),
-            gen_keys: HashSet::new(),
+                    cache: HashMap::new(),
+                    passing_keys: HashSet::new(),
+                    gen_keys: HashSet::new(),
 
-            db: self.db.clone(),
+                    db,
+                };
+
+                trie.root = EthTrie::<D>::decode_node(&mut data.as_slice())?;
+                Ok(trie)
+            }
+            None => Err(TrieError::InvalidStateRoot),
         }
     }
 }
@@ -411,7 +422,7 @@ where
                 proof_db.insert(hash.as_slice(), node_encoded).unwrap();
             }
         }
-        let trie = EthTrie::new(proof_db).at_root(root_hash);
+        let trie = EthTrie::from(proof_db, root_hash).or(Err(TrieError::InvalidProof))?;
         trie.get(key).or(Err(TrieError::InvalidProof))
     }
 }
@@ -562,7 +573,7 @@ where
             }
             Node::Hash(hash_node) => {
                 let node_hash = hash_node.hash;
-                self.passing_keys.insert(node_hash.as_slice().to_vec());
+                self.passing_keys.insert(node_hash);
                 let node =
                     self.recover_from_db(node_hash)?
                         .ok_or_else(|| TrieError::MissingTrieNode {
@@ -630,7 +641,7 @@ where
             }
             Node::Hash(hash_node) => {
                 let hash = hash_node.hash;
-                self.passing_keys.insert(hash.as_slice().to_vec());
+                self.passing_keys.insert(hash);
 
                 let node =
                     self.recover_from_db(hash)?
@@ -702,7 +713,7 @@ where
                     // try again after recovering node from the db.
                     Node::Hash(hash_node) => {
                         let node_hash = hash_node.hash;
-                        self.passing_keys.insert(node_hash.as_slice().to_vec());
+                        self.passing_keys.insert(node_hash);
 
                         let new_node =
                             self.recover_from_db(node_hash)?
@@ -782,7 +793,7 @@ where
             EncodedNode::Hash(hash) => hash,
             EncodedNode::Inline(encoded) => {
                 let hash: B256 = keccak(&encoded).as_fixed_bytes().into();
-                self.cache.insert(hash.as_slice().to_vec(), encoded);
+                self.cache.insert(hash, encoded);
                 hash
             }
         };
@@ -806,7 +817,7 @@ where
         let removed_keys: Vec<Vec<u8>> = self
             .passing_keys
             .iter()
-            .filter(|h| !self.gen_keys.contains(&h.to_vec()))
+            .filter(|h| !self.gen_keys.contains(*h))
             .map(|h| h.to_vec())
             .collect();
 
@@ -839,9 +850,9 @@ where
             EncodedNode::Inline(data)
         } else {
             let hash: B256 = keccak(&data).as_fixed_bytes().into();
-            self.cache.insert(hash.as_slice().to_vec(), data);
+            self.cache.insert(hash, data);
 
-            self.gen_keys.insert(hash.as_slice().to_vec());
+            self.gen_keys.insert(hash);
             EncodedNode::Hash(hash)
         }
     }
@@ -1249,7 +1260,7 @@ mod tests {
     }
 
     #[test]
-    fn test_trie_at_root_six_keys() {
+    fn test_trie_from_root() {
         let memdb = Arc::new(MemoryDB::new(true));
         let root = {
             let mut trie = EthTrie::new(memdb.clone());
@@ -1262,7 +1273,7 @@ mod tests {
             trie.root_hash().unwrap()
         };
 
-        let mut trie = EthTrie::new(memdb).at_root(root);
+        let mut trie = EthTrie::from(memdb, root).unwrap();
         let v1 = trie.get(b"test33").unwrap();
         assert_eq!(Some(b"test".to_vec()), v1);
         let v2 = trie.get(b"test44").unwrap();
@@ -1285,7 +1296,7 @@ mod tests {
             trie.root_hash().unwrap()
         };
 
-        let mut trie = EthTrie::new(memdb).at_root(root);
+        let mut trie = EthTrie::from(memdb, root).unwrap();
         trie.insert(b"test55", b"test55").unwrap();
         trie.root_hash().unwrap();
         let v = trie.get(b"test55").unwrap();
@@ -1306,7 +1317,7 @@ mod tests {
             trie.root_hash().unwrap()
         };
 
-        let mut trie = EthTrie::new(memdb).at_root(root);
+        let mut trie = EthTrie::from(memdb, root).unwrap();
         let removed = trie.remove(b"test44").unwrap();
         assert!(removed);
         let removed = trie.remove(b"test33").unwrap();
@@ -1345,7 +1356,7 @@ mod tests {
             trie1.insert(k1.as_slice(), v.as_slice()).unwrap();
             trie1.root_hash().unwrap();
             let root = trie1.root_hash().unwrap();
-            let mut trie2 = trie1.at_root(root);
+            let mut trie2 = EthTrie::from(Arc::clone(&memdb), root).unwrap();
             trie2.remove(k1.as_slice()).unwrap();
             trie2.root_hash().unwrap()
         };
@@ -1459,7 +1470,7 @@ mod tests {
             assert!(kv2.is_empty());
         }
 
-        let trie = EthTrie::new(memdb).at_root(root1);
+        let trie = EthTrie::from(memdb, root1).unwrap();
         trie.iter()
             .for_each(|(k, v)| assert_eq!(kv.remove(&k).unwrap(), v));
         assert!(kv.is_empty());
@@ -1472,11 +1483,11 @@ mod tests {
         trie.insert(b"key", b"val").unwrap();
         let new_root_hash = trie.root_hash().unwrap();
 
-        let empty_trie = EthTrie::new(memdb);
+        let empty_trie = EthTrie::new(memdb.clone());
         // Can't find key in new trie at empty root
         assert_eq!(empty_trie.get(b"key").unwrap(), None);
 
-        let trie_view = empty_trie.at_root(new_root_hash);
+        let trie_view = EthTrie::from(memdb, new_root_hash).unwrap();
         assert_eq!(&trie_view.get(b"key").unwrap().unwrap(), b"val");
 
         // Previous trie was not modified
@@ -1494,11 +1505,11 @@ mod tests {
         .unwrap();
         let new_root_hash = trie.root_hash().unwrap();
 
-        let empty_trie = EthTrie::new(memdb);
+        let empty_trie = EthTrie::new(memdb.clone());
         // Can't find key in new trie at empty root
         assert_eq!(empty_trie.get(b"pretty-long-key").unwrap(), None);
 
-        let trie_view = empty_trie.at_root(new_root_hash);
+        let trie_view = EthTrie::from(memdb, new_root_hash).unwrap();
         assert_eq!(
             &trie_view.get(b"pretty-long-key").unwrap().unwrap(),
             b"even-longer-val-to-go-more-than-32-bytes"
