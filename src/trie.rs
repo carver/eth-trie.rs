@@ -41,6 +41,9 @@ pub trait Trie<D: DB> {
     /// Returns the root hash of the trie and updated nodes from the cache.
     fn root_hash_with_changed_nodes(&mut self) -> TrieResult<RootWithTrieDiff>;
 
+    /// Clears the whole trie from the database.
+    fn clear_trie_from_db(&mut self) -> TrieResult<()>;
+
     /// Prove constructs a merkle proof for key. The result contains all encoded nodes
     /// on the path to the value at key. The value itself is also included in the last
     /// node and can be retrieved by verifying the proof.
@@ -367,6 +370,46 @@ where
     /// Returns the root hash of the trie and updated nodes from the cache.
     fn root_hash_with_changed_nodes(&mut self) -> TrieResult<RootWithTrieDiff> {
         self.commit(true)
+    }
+
+    /// Clears the whole trie from the database.
+    fn clear_trie_from_db(&mut self) -> TrieResult<()> {
+        let mut stack = vec![self.root_hash];
+
+        while let Some(node_key) = stack.pop() {
+            let encoded_node = self
+                .db
+                .get(node_key.as_slice())
+                .map_err(|e| TrieError::DB(e.to_string()))?
+                .expect("Failed to clear trie from db");
+
+            self.db
+                .remove(node_key.as_slice())
+                .map_err(|e| TrieError::DB(e.to_string()))?;
+
+            let decoded_node = decode_node(&mut encoded_node.as_slice())
+                .expect("Should should only be passing valid encoded nodes");
+
+            match decoded_node {
+                Node::Extension(extension) => {
+                    let extension = extension.read().expect("Reading an extension should work");
+                    if let Node::Hash(hash_node) = &extension.node {
+                        stack.push(hash_node.hash);
+                    }
+                }
+                Node::Branch(branch) => {
+                    let branch = branch.read().expect("Reading a branch should work");
+                    for child in branch.children.iter() {
+                        if let Node::Hash(hash_node) = child {
+                            stack.push(hash_node.hash);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        TrieResult::Ok(())
     }
 
     /// Prove constructs a merkle proof for key. The result contains all encoded nodes
