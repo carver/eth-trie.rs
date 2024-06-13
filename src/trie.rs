@@ -409,6 +409,12 @@ where
             }
         }
 
+        self.root = Node::Empty;
+        self.root_hash = KECCAK_NULL_RLP.as_fixed_bytes().into();
+        self.cache.clear();
+        self.passing_keys.clear();
+        self.gen_keys.clear();
+
         TrieResult::Ok(())
     }
 
