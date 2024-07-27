@@ -71,7 +71,7 @@ where
     root: Node,
     root_hash: B256,
 
-    db: Arc<D>,
+    pub db: Arc<D>,
 
     // The batch of pending new nodes to write
     cache: HashMap<B256, Vec<u8>>,
