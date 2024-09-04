@@ -12,8 +12,8 @@ homepage = "https://github.com/carver/eth-trie.rs"
 documentation = "https://docs.rs/eth_trie"
 
 [dependencies]
-alloy-primitives = { version = "0.7.0", features = ["getrandom", "rlp"] }
-alloy-rlp = { version = "0.3.4", features = ["derive"] }
+alloy-primitives = { version = "0.8.0", features = ["getrandom", "rlp"] }
+alloy-rlp = { version = "0.3.8", features = ["derive"] }
 hashbrown = "0.14.0"
 keccak-hash = "0.10.0"
 log = "0.4.16"
