@@ -5,7 +5,6 @@ use alloy_primitives::{Bytes, B256};
 use alloy_rlp::{Buf, BufMut, Encodable, Header, EMPTY_STRING_CODE};
 use hashbrown::{HashMap, HashSet};
 use keccak_hash::{keccak, KECCAK_NULL_RLP};
-use log::warn;
 
 use crate::db::{MemoryDB, DB};
 use crate::errors::TrieError;
@@ -134,7 +133,7 @@ impl<'a, D> Iterator for TrieIterator<'a, D>
 where
     D: DB,
 {
-    type Item = (Vec<u8>, Vec<u8>);
+    type Item = Result<(Vec<u8>, Vec<u8>), TrieError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -171,13 +170,13 @@ where
 
                     (TraceStatus::Doing, Node::Leaf(ref leaf)) => {
                         self.nibble.extend(&leaf.key);
-                        return Some((self.nibble.encode_raw().0, leaf.value.clone()));
+                        return Some(Ok((self.nibble.encode_raw().0, leaf.value.clone())));
                     }
 
                     (TraceStatus::Doing, Node::Branch(ref branch)) => {
                         let value_option = branch.read().unwrap().value.clone();
                         if let Some(value) = value_option {
-                            return Some((self.nibble.encode_raw().0, value));
+                            return Some(Ok((self.nibble.encode_raw().0, value)));
                         } else {
                             continue;
                         }
@@ -185,18 +184,22 @@ where
 
                     (TraceStatus::Doing, Node::Hash(ref hash_node)) => {
                         let node_hash = hash_node.hash;
-                        if let Ok(n) = self.trie.recover_from_db(node_hash) {
-                            self.nodes.pop();
-                            match n {
-                                Some(node) => self.nodes.push(node.into()),
-                                None => {
-                                    warn!("Trie node with hash {:?} is missing from the database. Skipping...", &node_hash);
-                                    continue;
-                                }
+                        match self.trie.recover_from_db(node_hash) {
+                            Ok(Some(node)) => {
+                                self.nodes.pop();
+                                self.nodes.push(node.into());
                             }
-                        } else {
-                            //error!();
-                            return None;
+                            Ok(None) => {
+                                return Some(Err(TrieError::MissingTrieNode {
+                                    node_hash,
+                                    traversed: Some(self.nibble.clone()),
+                                    root_hash: Some(self.trie.root_hash),
+                                    err_key: None,
+                                }));
+                            }
+                            Err(e) => {
+                                return Some(Err(e));
+                            }
                         }
                     }
 
@@ -1481,8 +1484,10 @@ mod tests {
             });
             root1 = trie.root_hash().unwrap();
 
-            trie.iter()
-                .for_each(|(k, v)| assert_eq!(kv.remove(&k).unwrap(), v));
+            trie.iter().for_each(|result| {
+                let (k, v) = result.unwrap();
+                assert_eq!(kv.remove(&k).unwrap(), v)
+            });
             assert!(kv.is_empty());
         }
 
@@ -1514,14 +1519,18 @@ mod tests {
             kv2.retain(|k, _| !kv_delete.contains(k));
 
             trie.root_hash().unwrap();
-            trie.iter()
-                .for_each(|(k, v)| assert_eq!(kv2.remove(&k).unwrap(), v));
+            trie.iter().for_each(|result| {
+                let (k, v) = result.unwrap();
+                assert_eq!(kv2.remove(&k).unwrap(), v)
+            });
             assert!(kv2.is_empty());
         }
 
         let trie = EthTrie::from(memdb, root1).unwrap();
-        trie.iter()
-            .for_each(|(k, v)| assert_eq!(kv.remove(&k).unwrap(), v));
+        trie.iter().for_each(|result| {
+            let (k, v) = result.unwrap();
+            assert_eq!(kv.remove(&k).unwrap(), v)
+        });
         assert!(kv.is_empty());
     }
 
