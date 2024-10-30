@@ -1,14 +1,15 @@
 [package]
 name = "eth_trie"
-version = "0.4.0"
-authors = ["Jason Carver <ut96caarrs@snkmail.com>"]
+version = "0.5.0"
+authors = ["https://github.com/ethereum/eth-trie.rs/graphs/contributors"]
 description = "Ethereum-compatible Merkle-Patricia Trie."
 license = "Apache-2.0"
-edition = "2018"
+rust-version = "1.81.0"
+edition = "2021"
 readme = "README.md"
 keywords = ["patricia", "mpt", "evm", "trie", "ethereum"]
-repository = "https://github.com/carver/eth-trie.rs"
-homepage = "https://github.com/carver/eth-trie.rs"
+repository = "https://github.com/ethereum/eth-trie.rs"
+homepage = "https://github.com/ethereum/eth-trie.rs"
 documentation = "https://docs.rs/eth_trie"
 
 [dependencies]

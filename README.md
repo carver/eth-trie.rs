@@ -1,8 +1,8 @@
 ## eth-trie
 
 [![Latest Version](https://img.shields.io/crates/v/eth_trie.svg)](https://crates.io/crates/eth_trie)
-[![](https://img.shields.io/hexpm/l/plug.svg)](https://github.com/carver/eth-trie.rs/blob/master/LICENSE)
-[![CircleCI](https://circleci.com/gh/carver/eth-trie.rs/tree/master.svg?style=svg)](https://circleci.com/gh/carver/eth-trie.rs/tree/master)
+[![](https://img.shields.io/hexpm/l/plug.svg)](https://github.com/ethereum/eth-trie.rs/blob/master/LICENSE)
+[![CircleCI](https://circleci.com/gh/ethereum/eth-trie.rs/tree/master.svg?style=svg)](https://circleci.com/gh/ethereum/eth-trie.rs/tree/master)
 
 Rust implementation of the Merkle-Patricia Trie, used by Ethereum.
 
@@ -105,4 +105,4 @@ See: https://crates.io/crates/hasher
 
 ### Custom storage
 
-[Refer](https://github.com/carver/eth-trie.rs/blob/master/src/db.rs)
+[Refer](https://github.com/ethereum/eth-trie.rs/blob/master/src/db.rs)
